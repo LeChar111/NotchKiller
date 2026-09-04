@@ -1,0 +1,36 @@
+import Foundation
+
+enum RepeatMode: Int, Codable {
+    case off = 1
+    case one = 2
+    case all = 3
+}
+
+struct PlaybackState: Equatable {
+    var bundleIdentifier: String = ""
+    var isPlaying: Bool = false
+    var title: String = ""
+    var artist: String = ""
+    var album: String = ""
+    var currentTime: Double = 0
+    var duration: Double = 0
+    var playbackRate: Double = 1
+    var isShuffled: Bool = false
+    var repeatMode: RepeatMode = .off
+    var lastUpdated: Date = .distantPast
+    var artwork: Data?
+    var volume: Double = 0.5
+
+    static func == (lhs: PlaybackState, rhs: PlaybackState) -> Bool {
+        lhs.bundleIdentifier == rhs.bundleIdentifier
+            && lhs.isPlaying == rhs.isPlaying
+            && lhs.title == rhs.title
+            && lhs.artist == rhs.artist
+            && lhs.album == rhs.album
+            && lhs.currentTime == rhs.currentTime
+            && lhs.duration == rhs.duration
+            && lhs.isShuffled == rhs.isShuffled
+            && lhs.repeatMode == rhs.repeatMode
+            && lhs.artwork == rhs.artwork
+    }
+}

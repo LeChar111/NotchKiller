@@ -1,0 +1,183 @@
+import AppKit
+
+struct DevEditor: Identifiable, Equatable {
+    var id: String { bundleID }
+    let bundleID: String
+    let name: String
+    let url: URL
+}
+
+struct DevProject: Identifiable, Equatable {
+    var id: String { path }
+    let path: String
+    let name: String
+    let branch: String?
+    let lastUsed: Date
+    let isFavorite: Bool
+
+    var displayPath: String {
+        path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+    }
+}
+
+@MainActor
+@Observable
+final class DevModel {
+    static let shared = DevModel()
+
+    private(set) var editors: [DevEditor] = []
+    private(set) var projects: [DevProject] = []
+    private(set) var lastAction: String?
+
+    /// Éditeurs reconnus, du plus spécifique au plus générique.
+    private static let knownEditors: [(String, String)] = [
+        ("com.todesktop.230313mzl4w4u92", "Cursor"),
+        ("com.microsoft.VSCode", "VS Code"),
+        ("com.microsoft.VSCodeInsiders", "VS Code Insiders"),
+        ("com.exafunction.windsurf", "Windsurf"),
+        ("dev.zed.Zed", "Zed"),
+        ("com.sublimetext.4", "Sublime Text"),
+        ("com.jetbrains.WebStorm", "WebStorm"),
+        ("com.apple.dt.Xcode", "Xcode"),
+    ]
+
+    private init() {}
+
+    var defaultEditor: DevEditor? {
+        let stored = AppSettings.shared.defaultEditorBundleID
+        return editors.first { $0.bundleID == stored } ?? editors.first
+    }
+
+    func refresh() {
+        editors = Self.knownEditors.compactMap { bundleID, name in
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+            return DevEditor(bundleID: bundleID, name: name, url: url)
+        }
+
+        let favorites = Set(AppSettings.shared.favoriteProjects)
+        let roots = AppSettings.shared.projectRoots
+
+        Task.detached(priority: .utility) {
+            let found = Self.discover(roots: roots, favorites: favorites)
+            await MainActor.run { self.projects = found }
+        }
+    }
+
+    // MARK: Découverte
+
+    /// Deux sources : les dépôts présents sous les racines configurées, et les
+    /// projets que Claude Code a déjà ouverts (`~/.claude.json`) — c'est le
+    /// meilleur signal de « récemment travaillé » qu'on ait sans rien indexer.
+    private nonisolated static func discover(roots: [String], favorites: Set<String>) -> [DevProject] {
+        var paths = Set<String>()
+
+        for root in roots {
+            let expanded = (root as NSString).expandingTildeInPath
+            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: expanded) else { continue }
+            for entry in entries where !entry.hasPrefix(".") {
+                let candidate = "\(expanded)/\(entry)"
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+                      isDirectory.boolValue else { continue }
+                paths.insert(candidate)
+            }
+        }
+
+        // Les projets connus de Claude Code sont un bon signal de récence, mais
+        // certains vivent dans ~/Downloads ou ~/Desktop : y toucher déclenche une
+        // demande d'accès que rien ne justifie ici. On ne garde que ce qui est
+        // sous une racine configurée, ou explicitement mis en favori.
+        let expandedRoots = roots.map { ($0 as NSString).expandingTildeInPath + "/" }
+        paths.formUnion(claudeProjects().filter { path in
+            expandedRoots.contains { path.hasPrefix($0) } || favorites.contains(path)
+        })
+        paths.formUnion(favorites)
+
+        let projects = paths.compactMap { path -> DevProject? in
+            guard FileManager.default.fileExists(atPath: path) else { return nil }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: "\(path)/.git")
+            let fallback = try? FileManager.default.attributesOfItem(atPath: path)
+            let modified = (attributes?[.modificationDate] as? Date)
+                ?? (fallback?[.modificationDate] as? Date)
+                ?? .distantPast
+
+            return DevProject(
+                path: path,
+                name: (path as NSString).lastPathComponent,
+                branch: branch(at: path),
+                lastUsed: modified,
+                isFavorite: favorites.contains(path)
+            )
+        }
+
+        return projects.sorted { lhs, rhs in
+            if lhs.isFavorite != rhs.isFavorite { return lhs.isFavorite }
+            return lhs.lastUsed > rhs.lastUsed
+        }
+    }
+
+    private nonisolated static func claudeProjects() -> [String] {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let projects = json["projects"] as? [String: Any] else { return [] }
+        return projects.keys.filter { $0.hasPrefix("/") }
+    }
+
+    /// Lecture directe de `.git/HEAD` : instantané, là où `git rev-parse`
+    /// coûterait un processus par dépôt à chaque rafraîchissement.
+    private nonisolated static func branch(at path: String) -> String? {
+        let head = "\(path)/.git/HEAD"
+        guard let content = try? String(contentsOfFile: head, encoding: .utf8) else { return nil }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("ref: refs/heads/") else {
+            return trimmed.isEmpty ? nil : String(trimmed.prefix(7))
+        }
+        return String(trimmed.dropFirst("ref: refs/heads/".count))
+    }
+
+    // MARK: Actions
+
+    func launch(_ editor: DevEditor) {
+        NSWorkspace.shared.openApplication(at: editor.url, configuration: NSWorkspace.OpenConfiguration())
+        lastAction = "\(editor.name) — ouvert"
+    }
+
+    func open(_ project: DevProject) {
+        guard let editor = defaultEditor else {
+            lastAction = "Aucun éditeur installé"
+            return
+        }
+        NSWorkspace.shared.open(
+            [URL(fileURLWithPath: project.path)],
+            withApplicationAt: editor.url,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
+        lastAction = "\(project.name) — \(editor.name)"
+    }
+
+    func openInTerminal(_ project: DevProject) {
+        _ = ActionLauncher.openTerminal(at: project.path)
+        lastAction = "\(project.name) — terminal"
+    }
+
+    func revealInFinder(_ project: DevProject) {
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.path)
+    }
+
+    func setDefaultEditor(_ editor: DevEditor) {
+        AppSettings.shared.defaultEditorBundleID = editor.bundleID
+        lastAction = "\(editor.name) — éditeur par défaut"
+    }
+
+    func toggleFavorite(_ project: DevProject) {
+        var favorites = AppSettings.shared.favoriteProjects
+        if let index = favorites.firstIndex(of: project.path) {
+            favorites.remove(at: index)
+        } else {
+            favorites.append(project.path)
+        }
+        AppSettings.shared.favoriteProjects = favorites
+        refresh()
+    }
+}
