@@ -28,6 +28,9 @@ final class DevModel {
     private(set) var editors: [DevEditor] = []
     private(set) var projects: [DevProject] = []
     private(set) var lastAction: String?
+    /// État du lancement d'Overleaf local (nil = jamais lancé depuis l'ouverture).
+    private(set) var overleafStatus: String?
+    private(set) var overleafBusy = false
 
     /// Éditeurs reconnus, du plus spécifique au plus générique.
     private static let knownEditors: [(String, String)] = [
@@ -165,6 +168,63 @@ final class DevModel {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.path)
     }
 
+    // MARK: Overleaf local
+
+    /// Script du toolkit Overleaf : démarre Docker Desktop si besoin, lance les
+    /// conteneurs, attend le serveur puis ouvre l'onglet. Il écrit une ligne
+    /// « STATUT: … » ou « ERREUR: … » par étape, affichée telle quelle.
+    static let overleafScript = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Documents/Projects/overleaf-toolkit/overleaf-launch.sh").path
+
+    var overleafInstalled: Bool { FileManager.default.isExecutableFile(atPath: Self.overleafScript) }
+
+    func launchOverleaf() {
+        guard !overleafBusy else { return }
+        guard overleafInstalled else {
+            overleafStatus = "Toolkit introuvable"
+            return
+        }
+        overleafBusy = true
+        overleafStatus = "Lancement…"
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [Self.overleafScript]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            let lines = text.split(separator: "\n").map(String.init)
+            Task { @MainActor in
+                for line in lines {
+                    if line.hasPrefix("STATUT: ") { self.overleafStatus = String(line.dropFirst(8)).capitalizedFirst }
+                    else if line.hasPrefix("ERREUR: ") { self.overleafStatus = String(line.dropFirst(8)).capitalizedFirst }
+                }
+            }
+        }
+        process.terminationHandler = { finished in
+            pipe.fileHandleForReading.readabilityHandler = nil
+            let ok = finished.terminationStatus == 0
+            Task { @MainActor in
+                self.overleafBusy = false
+                if !ok, self.overleafStatus == nil || self.overleafStatus == "Lancement…" {
+                    self.overleafStatus = "Échec du lancement"
+                }
+                self.lastAction = ok ? "Overleaf local — ouvert" : "Overleaf local — échec"
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            overleafBusy = false
+            overleafStatus = "Impossible de lancer le script"
+        }
+    }
+
     func setDefaultEditor(_ editor: DevEditor) {
         AppSettings.shared.defaultEditorBundleID = editor.bundleID
         lastAction = "\(editor.name) — éditeur par défaut"
@@ -180,4 +240,8 @@ final class DevModel {
         AppSettings.shared.favoriteProjects = favorites
         refresh()
     }
+}
+
+private extension String {
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }

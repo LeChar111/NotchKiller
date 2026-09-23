@@ -52,12 +52,63 @@ struct DevPageView: View {
                 }
             }
 
+            if model.overleafInstalled {
+                overleafRow
+            }
+
             Text("« Défaut » choisit l'éditeur qui ouvrira les projets ; la flèche lance l'app.")
                 .font(NK.ui(9.5, .medium))
                 .foregroundStyle(NK.t4)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 2)
         }
+    }
+
+    /// Overleaf local : un clic démarre Docker, les conteneurs, puis ouvre l'onglet.
+    private var overleafRow: some View {
+        Button { model.launchOverleaf() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.richtext")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.28, green: 0.66, blue: 0.36))
+                    .frame(width: 20, height: 20)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Overleaf local")
+                        .font(NK.ui(11.5, .semibold))
+                        .foregroundStyle(NK.t1)
+                        .lineLimit(1)
+                    Text(model.overleafStatus ?? "Docker + serveur + onglet")
+                        .font(NK.ui(9, .medium))
+                        .foregroundStyle(NK.t4)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                Group {
+                    if model.overleafBusy {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(NK.t3)
+                    }
+                }
+                .frame(width: 24, height: 24)
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: NK.radiusControl, style: .continuous)
+                    .fill(Color.white.opacity(0.03))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: NK.radiusControl, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(model.overleafBusy)
+        .help("Démarre Docker Desktop, Overleaf local (localhost:8090) puis ouvre l'onglet")
     }
 
     private func editorRow(_ editor: DevEditor) -> some View {
