@@ -66,6 +66,28 @@ struct DevPageView: View {
 
     /// Overleaf local : un clic démarre Docker, les conteneurs, puis ouvre l'onglet.
     private var overleafRow: some View {
+        HStack(spacing: 4) {
+            overleafLaunchButton
+            Button { model.importIntoOverleaf() } label: {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(NK.t3)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.overleafBusy)
+            .help("Importer un dossier ou un zip (export overleaf.com) comme nouveau projet")
+            .padding(.trailing, 6)
+        }
+        .frame(height: 36)
+        .background(
+            RoundedRectangle(cornerRadius: NK.radiusControl, style: .continuous)
+                .fill(Color.white.opacity(0.03))
+        )
+    }
+
+    private var overleafLaunchButton: some View {
         Button { model.launchOverleaf() } label: {
             HStack(spacing: 10) {
                 Image(systemName: "doc.richtext")
@@ -98,13 +120,8 @@ struct DevPageView: View {
                 .frame(width: 24, height: 24)
             }
             .padding(.leading, 10)
-            .padding(.trailing, 6)
             .frame(height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: NK.radiusControl, style: .continuous)
-                    .fill(Color.white.opacity(0.03))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: NK.radiusControl, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(model.overleafBusy)

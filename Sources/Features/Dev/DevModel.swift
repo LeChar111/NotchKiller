@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 struct DevEditor: Identifiable, Equatable {
     var id: String { bundleID }
@@ -176,20 +177,44 @@ final class DevModel {
     static let overleafScript = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Documents/Projects/overleaf-toolkit/overleaf-launch.sh").path
 
+    static let overleafImportScript = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Documents/Projects/overleaf-toolkit/overleaf-import.sh").path
+
     var overleafInstalled: Bool { FileManager.default.isExecutableFile(atPath: Self.overleafScript) }
 
     func launchOverleaf() {
+        runOverleaf(script: Self.overleafScript, arguments: [], label: "Lancement…", done: "ouvert")
+    }
+
+    /// Choisit des dossiers ou des zips (y compris l'export global d'overleaf.com)
+    /// et les importe comme nouveaux projets, puis ouvre la liste des projets.
+    func importIntoOverleaf() {
         guard !overleafBusy else { return }
-        guard overleafInstalled else {
+        let panel = NSOpenPanel()
+        panel.title = "Importer dans Overleaf local"
+        panel.prompt = "Importer"
+        panel.message = "Un dossier devient un projet ; un zip d'export overleaf.com donne un projet par zip interne."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.zip, .folder]
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        runOverleaf(script: Self.overleafImportScript, arguments: panel.urls.map(\.path), label: "Import…", done: "importé")
+    }
+
+    private func runOverleaf(script: String, arguments: [String], label: String, done: String) {
+        guard !overleafBusy else { return }
+        guard FileManager.default.isExecutableFile(atPath: script) else {
             overleafStatus = "Toolkit introuvable"
             return
         }
         overleafBusy = true
-        overleafStatus = "Lancement…"
+        overleafStatus = label
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [Self.overleafScript]
+        process.arguments = [script] + arguments
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -210,10 +235,10 @@ final class DevModel {
             let ok = finished.terminationStatus == 0
             Task { @MainActor in
                 self.overleafBusy = false
-                if !ok, self.overleafStatus == nil || self.overleafStatus == "Lancement…" {
-                    self.overleafStatus = "Échec du lancement"
+                if !ok, self.overleafStatus == nil || self.overleafStatus == label {
+                    self.overleafStatus = "Échec"
                 }
-                self.lastAction = ok ? "Overleaf local — ouvert" : "Overleaf local — échec"
+                self.lastAction = ok ? "Overleaf local — \(done)" : "Overleaf local — échec"
             }
         }
 
