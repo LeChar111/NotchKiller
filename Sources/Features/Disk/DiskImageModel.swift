@@ -21,7 +21,7 @@ final class DiskImageModel {
     static let volumeName = URL(fileURLWithPath: imagePath).deletingPathExtension().lastPathComponent
     static let volumePath = "/Volumes/\(volumeName)"
 
-    static var isConfigured: Bool { !imagePath.isEmpty }
+    static var isConfigured: Bool { !imagePath.isEmpty && !Demo.isActive }
 
     enum State {
         case unplugged  // le disque hôte n'est pas branché

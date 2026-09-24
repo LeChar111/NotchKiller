@@ -13,7 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildNotchWindows()
         setupStatusItem()
         observeScreenChanges()
-        startClaudeServices()
+        if Demo.isActive {
+            Demo.start()
+        } else {
+            startClaudeServices()
+        }
         startAmbientServices()
     }
 

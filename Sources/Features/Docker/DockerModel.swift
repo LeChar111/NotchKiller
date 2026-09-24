@@ -59,6 +59,7 @@ final class DockerModel {
     }
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         guard !isRefreshing else { return }
         isRefreshing = true
 
@@ -120,5 +121,19 @@ final class DockerModel {
                 self.refresh()
             }
         }
+    }
+}
+
+// MARK: - Démo
+
+extension DockerModel {
+    func loadDemo() {
+        isAvailable = true
+        containers = [
+            DockerContainer(id: "a1f3c9", name: "orbit-postgres", image: "postgres:16", state: "running", status: "Up 3 hours"),
+            DockerContainer(id: "b7d210", name: "orbit-redis", image: "redis:7-alpine", state: "running", status: "Up 3 hours"),
+            DockerContainer(id: "c4e882", name: "aurora-storybook", image: "node:22", state: "running", status: "Up 25 minutes"),
+            DockerContainer(id: "d90a1b", name: "mailpit", image: "axllent/mailpit", state: "exited", status: "Exited (0) 2 days ago"),
+        ]
     }
 }

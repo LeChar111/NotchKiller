@@ -66,6 +66,7 @@ final class ProcessMonitor {
     // MARK: Relevé
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         guard !isRefreshing else { return }
         isRefreshing = true
 
@@ -236,5 +237,25 @@ final class ProcessMonitor {
     nonisolated static func formatBytes(_ value: Double) -> String {
         if value >= 1_073_741_824 { return String(format: "%.1f Go", value / 1_073_741_824) }
         return String(format: "%.0f Mo", value / 1_048_576)
+    }
+}
+
+// MARK: - Démo
+
+extension ProcessMonitor {
+    func loadDemo() {
+        let gb = 1_073_741_824.0
+        let list = [
+            ProcessGroup(id: "safari", name: "Safari", pids: [611, 1204, 1377], cpu: 6.2, memoryBytes: 2.4 * gb, bundlePath: "/Applications/Safari.app"),
+            ProcessGroup(id: "xcode", name: "Xcode", pids: [902], cpu: 12.8, memoryBytes: 1.9 * gb, bundlePath: "/Applications/Xcode.app"),
+            ProcessGroup(id: "node", name: "node", pids: [48211, 48302], cpu: 9.4, memoryBytes: 0.8 * gb, bundlePath: nil),
+            ProcessGroup(id: "music", name: "Musique", pids: [733], cpu: 1.1, memoryBytes: 0.35 * gb, bundlePath: "/System/Applications/Music.app"),
+            ProcessGroup(id: "mail", name: "Mail", pids: [640], cpu: 0.4, memoryBytes: 0.3 * gb, bundlePath: "/System/Applications/Mail.app"),
+            ProcessGroup(id: "postgres", name: "postgres", pids: [812], cpu: 0.9, memoryBytes: 0.21 * gb, bundlePath: nil),
+        ]
+        groups = Self.sorted(list, byCPU: sortByCPU)
+        totalUserMemory = list.reduce(0) { $0 + $1.memoryBytes }
+        reclaimCandidates = Array(list.suffix(2))
+        reclaimableBytes = reclaimCandidates.reduce(0) { $0 + $1.memoryBytes }
     }
 }

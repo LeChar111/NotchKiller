@@ -25,6 +25,19 @@ final class MusicManager {
     private var spotifyNotificationTask: Task<Void, Never>?
 
     private init() {
+        if Demo.isActive {
+            songTitle = "Midnight Circuit"
+            artistName = "Neon Harbor"
+            albumName = "Low Tide Signals"
+            albumArt = Demo.artwork()
+            isPlaying = true
+            isIdle = false
+            songDuration = 214
+            elapsedTime = 83
+            bundleIdentifier = "com.apple.Music"
+            lastUpdated = Date()
+            return
+        }
         setupNotificationObservers()
         startPolling()
     }

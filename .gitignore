@@ -6,3 +6,4 @@ dist/
 
 # Build local (régénéré par build.sh)
 build/
+__pycache__/

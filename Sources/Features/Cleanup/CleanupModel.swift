@@ -39,9 +39,12 @@ final class CleanupModel {
 
     var totalBytes: Double { targets.reduce(0) { $0 + $1.bytes } }
 
-    private init() {}
+    private init() {
+        if Demo.isActive { loadDemo() }
+    }
 
     func scan() {
+        if Demo.isActive { loadDemo(); return }
         guard !isScanning else { return }
         isScanning = true
         let roots = AppSettings.shared.projectRoots
@@ -123,5 +126,22 @@ final class CleanupModel {
                                  detail: Shell.formatBytes(bytes), bytes: bytes, group: group)
         }
         .sorted { $0.bytes > $1.bytes }
+    }
+}
+
+// MARK: - Démo
+
+extension CleanupModel {
+    func loadDemo() {
+        let gb = 1_073_741_824.0
+        let root = "\(Demo.home)/Projects"
+        targets = [
+            CleanupTarget(path: "\(root)/aurora-web/node_modules", name: "aurora-web", detail: "node_modules", bytes: 1.4 * gb, group: .modules),
+            CleanupTarget(path: "\(root)/atlas-docs/node_modules", name: "atlas-docs", detail: "node_modules", bytes: 0.9 * gb, group: .modules),
+            CleanupTarget(path: "\(Demo.home)/Library/Caches/Homebrew", name: "Homebrew", detail: "cache", bytes: 2.1 * gb, group: .caches),
+            CleanupTarget(path: "\(Demo.home)/Library/Developer/Xcode/DerivedData", name: "Xcode", detail: "DerivedData", bytes: 6.3 * gb, group: .builds),
+            CleanupTarget(path: "\(root)/lumen-ios/build", name: "lumen-ios", detail: "build", bytes: 0.7 * gb, group: .builds),
+        ]
+        hasScanned = true
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct NotesView: View {
-    @State private var noteText = ""
+    @State private var noteText = Demo.isActive ? Demo.noteText : ""
     @State private var formatBold = false
     @State private var formatItalic = false
 

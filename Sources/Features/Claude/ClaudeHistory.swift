@@ -106,6 +106,7 @@ final class ClaudeHistoryModel {
     private init() {}
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         guard refreshTask == nil else { return }
         isLoading = true
         let profiles = ClaudeProfile.all
@@ -190,5 +191,30 @@ final class ClaudeHistoryModel {
             lastPrompt: info.lastPrompt,
             updatedAt: modified
         )
+    }
+}
+
+// MARK: - Démo
+
+extension ClaudeHistoryModel {
+    func loadDemo() {
+        let root = "\(Demo.home)/Projects"
+        let items: [(String, String, String, TimeInterval)] = [
+            ("demo-aurora", "aurora-web", "Mode sombre de la page de tarifs", 60),
+            ("demo-orbit", "orbit-api", "Débogage des webhooks de paiement", 240),
+            ("h-3", "lumen-ios", "Migration vers SwiftData", 3 * 3600),
+            ("h-4", "atlas-docs", "Réécriture du guide de démarrage", 26 * 3600),
+            ("h-5", "pixel-kit", "Tokens de couleur et thème sombre", 3 * 86_400),
+            ("h-6", "orbit-api", "Pagination par curseur sur /invoices", 5 * 86_400),
+        ]
+        var result: [ClaudeProfile: [ClaudeHistoryEntry]] = [:]
+        for profile in ClaudeProfile.all {
+            result[profile] = items.map { id, project, title, age in
+                ClaudeHistoryEntry(id: id, profile: profile, path: "", workingDirectory: "\(root)/\(project)",
+                                   title: title, lastPrompt: nil, updatedAt: Demo.ago(age))
+            }
+        }
+        entries = result
+        lastRefresh = Date()
     }
 }

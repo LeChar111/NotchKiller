@@ -98,6 +98,14 @@ final class BarActivities {
         restartRotation(autoRotate: false)
     }
 
+    /// Mode démo : fige le bandeau sur une activité permanente précise.
+    func pin(_ activity: BarActivity) {
+        guard let position = persistent.firstIndex(of: activity) else { return }
+        dismissTransient()
+        index = position
+        restartRotation(autoRotate: false)
+    }
+
     private func restartRotation(autoRotate: Bool) {
         rotation?.cancel()
         guard autoRotate, persistent.count > 1 else { return }

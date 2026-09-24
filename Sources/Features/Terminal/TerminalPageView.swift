@@ -17,6 +17,13 @@ final class MiniTerminal {
     private var task: Process?
 
     private init() {
+        if Demo.isActive {
+            workingDirectory = "\(Demo.home)/Projects/aurora-web"
+            command = "git status -sb"
+            output = "## feat/dark-pricing...origin/feat/dark-pricing [ahead 2]\n M src/pages/Pricing.tsx\n M src/styles/tokens.css\n?? src/styles/dark.css\n"
+            exitCode = 0
+            return
+        }
         workingDirectory = AppSettings.shared.projectRoots.first
             .map { ($0 as NSString).expandingTildeInPath }
             ?? FileManager.default.homeDirectoryForCurrentUser.path
@@ -25,6 +32,7 @@ final class MiniTerminal {
     var directoryLabel: String {
         workingDirectory.replacingOccurrences(
             of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+            .replacingOccurrences(of: Demo.home, with: "~")
     }
 
     func setDirectory(_ path: String) {

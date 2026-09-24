@@ -71,6 +71,7 @@ final class CalendarModel {
     }
 
     func start() {
+        if Demo.isActive { loadDemo(); return }
         guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
@@ -86,6 +87,7 @@ final class CalendarModel {
     }
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         authorization = EKEventStore.authorizationStatus(for: .event)
         guard hasAccess else { events = []; return }
 
@@ -115,5 +117,28 @@ final class CalendarModel {
 
     func open(_ event: AgendaEvent) {
         NSWorkspace.shared.open(URL(string: "ical://")!)
+    }
+}
+
+// MARK: - Démo
+
+extension CalendarModel {
+    func loadDemo() {
+        authorization = .fullAccess
+        let today = Calendar.current.startOfDay(for: Date())
+        func at(_ hours: Double) -> Date { today.addingTimeInterval(hours * 3600) }
+        let now = Date()
+        events = [
+            AgendaEvent(id: "d1", title: "Revue de design — tarifs", start: now.addingTimeInterval(18 * 60),
+                        end: now.addingTimeInterval(63 * 60), isAllDay: false, location: "Salle Hopper",
+                        calendarColor: .purple),
+            AgendaEvent(id: "d2", title: "Point hebdo équipe produit", start: now.addingTimeInterval(3 * 3600),
+                        end: now.addingTimeInterval(3.5 * 3600), isAllDay: false, location: "Visio",
+                        calendarColor: .blue),
+            AgendaEvent(id: "d3", title: "Sport", start: at(42.5), end: at(43.5), isAllDay: false,
+                        location: nil, calendarColor: .green),
+            AgendaEvent(id: "d4", title: "Sortie Lumen 2.4", start: at(24), end: at(48), isAllDay: true,
+                        location: nil, calendarColor: .orange),
+        ]
     }
 }
