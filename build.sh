@@ -78,7 +78,7 @@ SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 SWIFT_FILES=()
 while IFS= read -r -d '' file; do
   SWIFT_FILES+=("$file")
-done < <(find "$ROOT_DIR/Sources" -name '*.swift' -not -path '*/NotchKillerApp_old.swift' -print0)
+done < <(find "$ROOT_DIR/Sources" -name '*.swift' -print0)
 
 if [[ ${#SWIFT_FILES[@]} -eq 0 ]]; then
   echo "Aucun fichier Swift dans Sources/"

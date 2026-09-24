@@ -3,3 +3,6 @@ dist/
 
 # macOS
 .DS_Store
+
+# Build local (régénéré par build.sh)
+build/

@@ -42,7 +42,7 @@ Le dossier contient un projet Xcode natif:
 Ouvrir dans Xcode:
 
 ```bash
-open NotchKiller/NotchKiller.xcodeproj
+open NotchKiller.xcodeproj
 ```
 
 Puis dans Xcode:
@@ -53,6 +53,7 @@ Puis dans Xcode:
 ## Installation (script)
 
 ```bash
+git clone https://github.com/LeChar111/NotchKiller.git
 cd NotchKiller
 chmod +x build.sh install.sh uninstall.sh
 ./install.sh
@@ -72,6 +73,16 @@ Depuis l'icône menu bar `NotchKiller`:
 Dans le widget lui-même:
 - Rail droit pour changer de page
 - Page `Param` pour les réglages en temps réel
+
+Réglages optionnels, sans écran dédié :
+
+```bash
+# Image disque APFS sur un SSD externe : active le bouton de montage (page Outils)
+defaults write com.flux.notchkiller disk.imagePath /Volumes/SSD/Apps.sparsebundle
+
+# Dossier du toolkit Overleaf local (défaut : ~/Documents/Projects/overleaf-toolkit)
+defaults write com.flux.notchkiller dev.overleafToolkit ~/chemin/vers/overleaf-toolkit
+```
 
 ## Désinstallation
 

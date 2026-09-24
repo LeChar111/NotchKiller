@@ -174,11 +174,19 @@ final class DevModel {
     /// Script du toolkit Overleaf : démarre Docker Desktop si besoin, lance les
     /// conteneurs, attend le serveur puis ouvre l'onglet. Il écrit une ligne
     /// « STATUT: … » ou « ERREUR: … » par étape, affichée telle quelle.
-    static let overleafScript = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Documents/Projects/overleaf-toolkit/overleaf-launch.sh").path
+    /// Dossier du toolkit, surchargeable par
+    /// `defaults write com.flux.notchkiller dev.overleafToolkit <chemin>`.
+    static let overleafToolkit: URL = {
+        if let path = UserDefaults.standard.string(forKey: "dev.overleafToolkit"), !path.isEmpty {
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/Projects/overleaf-toolkit")
+    }()
 
-    static let overleafImportScript = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Documents/Projects/overleaf-toolkit/overleaf-import.sh").path
+    static let overleafScript = overleafToolkit.appendingPathComponent("overleaf-launch.sh").path
+
+    static let overleafImportScript = overleafToolkit.appendingPathComponent("overleaf-import.sh").path
 
     var overleafInstalled: Bool { FileManager.default.isExecutableFile(atPath: Self.overleafScript) }
 
