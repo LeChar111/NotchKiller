@@ -34,6 +34,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startClaudeServices() {
         HookInstaller.installIfNeeded()
         MCPInstaller.installIfNeeded()
+        ShellRunner.resolve()
+        // Fixe dès maintenant le début du suivi des sessions interrompues.
+        _ = ClaudeEndedSessions.trackingSince
+        // Une session Claude Code ouverte réécrit sa config depuis sa copie en
+        // mémoire et peut effacer notre déclaration MCP : on la repose au besoin.
+        Task.detached(priority: .utility) {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(120))
+                MCPInstaller.installIfNeeded()
+            }
+        }
         SocketServer.shared.start { event in
             Task { @MainActor in
                 ClaudeStateMachine.shared.handleEvent(event)

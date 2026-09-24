@@ -63,7 +63,7 @@ cat > "$PLIST_PATH" <<PLIST
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>NotchKiller affiche votre prochain rendez-vous dans l'encoche.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>NotchKiller pilote Musique et Spotify pour afficher et contrôler la lecture.</string>
+    <string>NotchKiller pilote Musique et Spotify pour la lecture, et Ghostty pour ouvrir une nouvelle fenêtre.</string>
     <key>NSHumanReadableCopyright</key>
     <string>NotchKiller $VERSION</string>
     <key>NSPrincipalClass</key>

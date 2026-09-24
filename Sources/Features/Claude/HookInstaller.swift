@@ -59,6 +59,11 @@ struct HookInstaller {
         'permission_mode': input_data.get('permission_mode', 'default')
     }
 
+    # Le transcript porte le titre que Claude Code génère lui-même (ai-title).
+    transcript = input_data.get('transcript_path', '')
+    if transcript:
+        output['transcript_path'] = transcript
+
     if hook_event == 'UserPromptSubmit':
         prompt = input_data.get('prompt', '')
         if prompt:
@@ -96,8 +101,9 @@ struct HookInstaller {
                     'additionalContext': (
                         'NotchKiller demande une description de cette conversation. '
                         'Appelle maintenant le tool MCP set_session_summary (serveur notchkiller) '
-                        'avec une phrase courte en français décrivant le sujet de la discussion, '
-                        'et si utile le champ detail. Ne commente pas cette demande.'
+                        'avec session_id=' + session + ', une phrase courte en français décrivant '
+                        'le sujet de la discussion, et dans detail où en est le travail. '
+                        'Ne commente pas cette demande.'
                     ),
                 }}))
             except OSError:
@@ -114,8 +120,6 @@ struct HookInstaller {
 
         let hooksDir = claudeDir.appendingPathComponent("hooks")
         let hookScript = hooksDir.appendingPathComponent("notchkiller-hook.sh")
-        let settings = claudeDir.appendingPathComponent("settings.json")
-
         try? FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
 
         do {
@@ -125,7 +129,10 @@ struct HookInstaller {
             return false
         }
 
-        return updateSettings(at: settings)
+        // Le script reste dans ~/.claude/hooks ; chaque profil y renvoie.
+        return ClaudeProfiles.directories
+            .map { updateSettings(at: $0.appendingPathComponent("settings.json")) }
+            .allSatisfy { $0 }
     }
 
     private static func updateSettings(at settingsURL: URL) -> Bool {
@@ -185,9 +192,13 @@ struct HookInstaller {
     }
 
     static func isInstalled() -> Bool {
-        let settings = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/settings.json")
+        let profiles = ClaudeProfiles.directories
+        return !profiles.isEmpty && profiles.allSatisfy {
+            isInstalled(settings: $0.appendingPathComponent("settings.json"))
+        }
+    }
 
+    private static func isInstalled(settings: URL) -> Bool {
         guard let data = try? Data(contentsOf: settings),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let hooks = json["hooks"] as? [String: Any] else { return false }

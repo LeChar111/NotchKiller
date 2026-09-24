@@ -13,6 +13,10 @@ struct MediaPlaylist: Identifiable, Equatable {
     let subtitle: String
     /// Renseigné pour les playlists épinglées : on les ouvre par leur lien.
     let link: String?
+    /// Pochette récupérée depuis la page du lien.
+    var artworkURL: String? = nil
+    /// Renommée à la main : la récupération automatique n'y touche plus.
+    var isCustomName = false
 }
 
 @MainActor
@@ -152,16 +156,51 @@ final class MediaLibrary {
         }
         let title = name?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? Self.derivedName(from: link)
-        pinned.append(MediaPlaylist(id: "pin:\(link)", name: title,
-                                    subtitle: Self.serviceName(from: link), link: link))
+        let playlist = MediaPlaylist(id: "pin:\(link)", name: title,
+                                     subtitle: Self.serviceName(from: link), link: link)
+        pinned.append(playlist)
         savePinned()
         note = "\(title) — épinglée"
+        fetchMetadata(for: playlist)
     }
 
     func removePinned(_ playlist: MediaPlaylist) {
         pinned.removeAll { $0.id == playlist.id }
         savePinned()
     }
+
+    func rename(_ playlist: MediaPlaylist, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = pinned.firstIndex(where: { $0.id == playlist.id }) else { return }
+        let current = pinned[index]
+        pinned[index] = MediaPlaylist(id: current.id, name: trimmed, subtitle: current.subtitle, link: current.link,
+                                      artworkURL: current.artworkURL, isCustomName: true)
+        savePinned()
+    }
+
+    /// Nom et pochette depuis la page du lien. `force` écrase aussi un nom
+    /// choisi à la main — c'est le bouton « Récupérer ».
+    func fetchMetadata(for playlist: MediaPlaylist, force: Bool = false) {
+        guard let link = playlist.link else { return }
+        fetchedLinks.insert(link)
+        Task {
+            let result = await PlaylistMetadata.fetch(link)
+            guard let index = pinned.firstIndex(where: { $0.id == playlist.id }) else { return }
+            let current = pinned[index]
+            let keepName = current.isCustomName && !force
+            let name = keepName ? current.name : (result.title ?? current.name)
+            pinned[index] = MediaPlaylist(id: current.id, name: name, subtitle: current.subtitle, link: current.link,
+                                          artworkURL: result.imageURL ?? current.artworkURL,
+                                          isCustomName: keepName)
+            savePinned()
+            if force {
+                note = result.title == nil ? "Nom introuvable pour ce lien" : "\(name) — mis à jour"
+            }
+        }
+    }
+
+    /// Liens déjà interrogés pendant cette exécution : on ne réinterroge pas en boucle.
+    private var fetchedLinks: Set<String> = []
 
     /// Sans appel d'API on n'a pas le vrai titre : on tire le meilleur du lien.
     private nonisolated static func derivedName(from link: String) -> String {
@@ -189,14 +228,22 @@ final class MediaLibrary {
         pinned = raw.compactMap { entry in
             guard let link = entry["link"], let name = entry["name"] else { return nil }
             return MediaPlaylist(id: "pin:\(link)", name: name,
-                                 subtitle: entry["service"] ?? Self.serviceName(from: link), link: link)
+                                 subtitle: entry["service"] ?? Self.serviceName(from: link), link: link,
+                                 artworkURL: entry["artwork"], isCustomName: entry["custom"] == "1")
+        }
+        // Épinglées avant la récupération automatique : on complète une fois.
+        for playlist in pinned where playlist.artworkURL == nil && !fetchedLinks.contains(playlist.link ?? "") {
+            fetchMetadata(for: playlist)
         }
     }
 
     private func savePinned() {
         let raw = pinned.compactMap { playlist -> [String: String]? in
             guard let link = playlist.link else { return nil }
-            return ["link": link, "name": playlist.name, "service": playlist.subtitle]
+            var entry = ["link": link, "name": playlist.name, "service": playlist.subtitle,
+                         "custom": playlist.isCustomName ? "1" : "0"]
+            if let artwork = playlist.artworkURL { entry["artwork"] = artwork }
+            return entry
         }
         UserDefaults.standard.set(raw, forKey: Self.pinnedKey)
     }

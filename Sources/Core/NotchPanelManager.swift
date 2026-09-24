@@ -32,6 +32,21 @@ final class NotchPanelManager {
     private(set) var notchSize: CGSize = .zero
     private(set) var notchRect: CGRect = .zero
     private(set) var panelRect: CGRect = .zero
+    /// Tiroir sous le bandeau fermé (résumé de fin de discussion) : il agrandit
+    /// la zone active tant qu'il est affiché.
+    private(set) var drawerRect: CGRect = .zero
+    var showsDrawer = false {
+        didSet {
+            guard !showsDrawer else { return }
+            drawerRect = .zero
+            BarActivities.shared.hold(false)
+        }
+    }
+
+    /// Zone cliquable de l'encoche fermée, tiroir compris.
+    var collapsedRect: CGRect {
+        drawerRect.isEmpty ? notchRect : notchRect.union(drawerRect)
+    }
     private var screenFrame: CGRect = .zero
 
     private var hoverExitTask: Task<Void, Never>?
@@ -90,6 +105,9 @@ final class NotchPanelManager {
         if isExpanded {
             guard newRect != panelRect else { return }
             panelRect = newRect
+        } else if showsDrawer {
+            let ceiling = notchSize.height + NotchConstants.hoverLift + 4
+            if size.height > ceiling { drawerRect = newRect }
         } else {
             // Pendant l'animation de repli, la mesure passe par des tailles
             // intermédiaires : on n'accepte que celles d'un vrai bandeau.
@@ -155,6 +173,9 @@ final class NotchPanelManager {
         // Marge de 4 pt : sans elle, le bandeau clignote quand la souris longe
         // exactement sa bordure.
         let inside = notchRect.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation)
+        if showsDrawer {
+            BarActivities.shared.hold(collapsedRect.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation))
+        }
 
         if inside {
             hoverExitTask?.cancel()

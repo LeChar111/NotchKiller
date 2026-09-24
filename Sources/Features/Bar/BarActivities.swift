@@ -28,6 +28,9 @@ final class BarActivities {
     private(set) var persistent: [BarActivity] = [.idle]
 
     private var expiry: Task<Void, Never>?
+    /// Survolée, une activité éphémère reste affichée ; elle repart à la sortie.
+    private var isHeld = false
+    private static let releaseDelay: TimeInterval = 3
     private var rotation: Task<Void, Never>?
 
     private init() {}
@@ -53,7 +56,26 @@ final class BarActivities {
 
     func show(_ activity: BarActivity, for seconds: TimeInterval) {
         transient = activity
+        scheduleExpiry(after: seconds)
+    }
+
+    /// Survol du tiroir : on suspend l'expiration, puis on laisse quelques
+    /// secondes de lecture une fois la souris partie.
+    func hold(_ held: Bool) {
+        guard held != isHeld else { return }
+        isHeld = held
+        guard transient != nil else { return }
+        if held {
+            expiry?.cancel()
+            expiry = nil
+        } else {
+            scheduleExpiry(after: Self.releaseDelay)
+        }
+    }
+
+    private func scheduleExpiry(after seconds: TimeInterval) {
         expiry?.cancel()
+        guard !isHeld else { expiry = nil; return }
         expiry = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
