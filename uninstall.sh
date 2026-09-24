@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_PATH="$HOME/Applications/NotchKiller.app"
-LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.flux.notchkiller.plist"
+LAUNCH_AGENT="$HOME/Library/LaunchAgents/io.github.lechar111.notchkiller.plist"
 
 launchctl unload "$LAUNCH_AGENT" >/dev/null 2>&1 || true
 rm -f "$LAUNCH_AGENT"

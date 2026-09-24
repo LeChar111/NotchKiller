@@ -64,7 +64,7 @@ if security find-identity -v -p codesigning | command grep -q "$NAME"; then
   echo
   echo "Les autorisations accordées à NotchKiller tiendront alors d'une"
   echo "compilation à l'autre. Réinitialisez-les une dernière fois avec :"
-  echo "  tccutil reset All com.flux.notchkiller"
+  echo "  tccutil reset All io.github.lechar111.notchkiller"
 else
   echo "Le certificat n'apparaît pas comme identité de signature."
   echo "Créez-le à la main : Trousseaux d'accès → Assistant de certification →"

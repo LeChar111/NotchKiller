@@ -175,7 +175,7 @@ final class DevModel {
     /// conteneurs, attend le serveur puis ouvre l'onglet. Il écrit une ligne
     /// « STATUT: … » ou « ERREUR: … » par étape, affichée telle quelle.
     /// Dossier du toolkit, surchargeable par
-    /// `defaults write com.flux.notchkiller dev.overleafToolkit <chemin>`.
+    /// `defaults write io.github.lechar111.notchkiller dev.overleafToolkit <chemin>`.
     static let overleafToolkit: URL = {
         if let path = UserDefaults.standard.string(forKey: "dev.overleafToolkit"), !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)

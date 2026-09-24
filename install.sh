@@ -6,7 +6,8 @@ APP_NAME="NotchKiller"
 SOURCE_APP="$ROOT_DIR/build/$APP_NAME.app"
 TARGET_DIR="$HOME/Applications"
 TARGET_APP="$TARGET_DIR/$APP_NAME.app"
-LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.flux.notchkiller.plist"
+BUNDLE_ID="io.github.lechar111.notchkiller"
+LAUNCH_AGENT="$HOME/Library/LaunchAgents/$BUNDLE_ID.plist"
 
 "$ROOT_DIR/build.sh"
 
@@ -21,7 +22,7 @@ cat > "$LAUNCH_AGENT" <<PLIST
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.flux.notchkiller</string>
+    <string>$BUNDLE_ID</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/open</string>
