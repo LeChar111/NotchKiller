@@ -18,6 +18,8 @@ struct HookEvent: Decodable, Sendable {
     let summaryDetail: String?
     /// PID du processus `claude` puis de ses ancêtres, jusqu'à l'app terminal.
     let ancestors: [Int]?
+    /// Transcript JSONL de la session, d'où l'on tire le titre généré par Claude Code.
+    let transcriptPath: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -28,6 +30,7 @@ struct HookEvent: Decodable, Sendable {
         case permissionMode = "permission_mode"
         case interactive, summary, ancestors
         case summaryDetail = "summary_detail"
+        case transcriptPath = "transcript_path"
     }
 }
 

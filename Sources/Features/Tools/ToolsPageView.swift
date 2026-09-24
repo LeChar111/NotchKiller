@@ -42,6 +42,7 @@ enum ToolAction: String, CaseIterable, Identifiable {
 struct ToolsPageView: View {
     var capture: CaptureModel = .shared
     var awake: AwakeModel = .shared
+    var disk: DiskImageModel = .shared
 
     @State private var feedback: (text: String, ok: Bool)?
     @State private var runningApps: [NSRunningApplication] = []
@@ -62,13 +63,14 @@ struct ToolsPageView: View {
 
             VStack(alignment: .leading, spacing: NK.sectionGap) {
                 awakeBlock
+                diskBlock
                 switcherBlock
             }
             .frame(width: 268, alignment: .topLeading)
         }
         .padding(.top, 12)
         .padding(.bottom, 12)
-        .onAppear { refreshApps() }
+        .onAppear { refreshApps(); disk.refresh() }
     }
 
     // MARK: Capture
@@ -201,6 +203,72 @@ struct ToolsPageView: View {
 
     // MARK: Bascule d'application
 
+    /// Le T9 ne peut pas porter de partition APFS native : l'espace
+    /// d'installation est une image disque, à monter après chaque branchement.
+    /// Le LaunchAgent le fait tout seul ; ce bouton sert à forcer le geste, et
+    /// surtout à éjecter proprement avant de débrancher le SSD.
+    private var diskBlock: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                SectionLabel("Disque externe")
+                Spacer(minLength: 0)
+                if disk.state == .mounted {
+                    Button { disk.revealInFinder() } label: {
+                        Image(systemName: "arrow.up.forward.app")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(NK.t4)
+                            .frame(width: 18, height: 18)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Ouvrir dans le Finder")
+                }
+            }
+
+            Button { disk.toggle() } label: {
+                HStack(spacing: 9) {
+                    Group {
+                        if disk.isBusy {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: disk.symbol)
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                    }
+                    .frame(width: 17)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(disk.title)
+                            .font(NK.ui(11.5, .semibold))
+                        Text(disk.subtitle)
+                            .font(NK.ui(9.5, .medium))
+                            .foregroundStyle(disk.lastError == nil ? NK.t4 : NK.bad)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(diskTint)
+                .padding(.horizontal, 12)
+                .frame(height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(disk.state == .mounted ? NK.ok.opacity(0.12) : NK.surface)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(disk.isBusy)
+        }
+    }
+
+    private var diskTint: Color {
+        switch disk.state {
+        case .unplugged: NK.t3
+        case .detached:  NK.t2
+        case .mounted:   NK.ok
+        }
+    }
+
     private var switcherBlock: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
@@ -308,6 +376,12 @@ enum ActionLauncher {
 
     static func openTerminal() -> Bool {
         let running = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
+        // Ghostty déjà lancé : l'activer ne fait que le ramener au premier plan,
+        // il faut lui demander explicitement une nouvelle fenêtre.
+        if running.contains(ghosttyBundleID) {
+            openGhosttyWindow()
+            return true
+        }
         if let active = terminalBundleIDs.first(where: { running.contains($0) }),
            openBundleID(active) {
             return true
@@ -316,6 +390,25 @@ enum ActionLauncher {
             return true
         }
         return false
+    }
+
+    private static let ghosttyBundleID = "com.mitchellh.ghostty"
+
+    /// `new window` via le dictionnaire AppleScript de Ghostty (≥ 1.3). Si
+    /// l'automatisation est refusée, on se rabat sur la simple activation.
+    private static func openGhosttyWindow() {
+        Task {
+            do {
+                try await AppleScriptHelper.executeVoid("""
+                    tell application id "\(ghosttyBundleID)"
+                        new window
+                        activate
+                    end tell
+                    """)
+            } catch {
+                _ = await MainActor.run { openBundleID(ghosttyBundleID) }
+            }
+        }
     }
 
     static func openSystemSettings() -> Bool {

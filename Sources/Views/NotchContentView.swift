@@ -51,8 +51,8 @@ enum WidgetTab: String, CaseIterable, Identifiable {
         switch self {
         case .home:     [.summary, .agenda]
         case .dev:      [.projects, .ports, .docker, .terminal]
-        case .claude:   [.sessions, .mcp]
-        case .system:   [.stats, .processes, .cleanup, .battery, .controls]
+        case .claude:   [.sessions, .history, .mcp]
+        case .system:   [.stats, .processes, .memory, .cleanup, .battery, .controls]
         case .workshop: [.shelf, .clipboard, .notes, .calculator, .actions, .settings]
         default:        []
         }
@@ -60,7 +60,7 @@ enum WidgetTab: String, CaseIterable, Identifiable {
 }
 
 enum WidgetSubpage: String, CaseIterable, Identifiable {
-    case summary, agenda, sessions, mcp, projects, ports, docker, terminal, stats, processes, cleanup, battery, controls, shelf, clipboard, calculator, notes, actions, settings
+    case summary, agenda, sessions, history, mcp, projects, ports, docker, terminal, stats, processes, memory, cleanup, battery, controls, shelf, clipboard, calculator, notes, actions, settings
 
     var id: String { rawValue }
 
@@ -71,6 +71,7 @@ enum WidgetSubpage: String, CaseIterable, Identifiable {
         case .terminal:   "Terminal"
         case .calculator: "Calculatrice"
         case .sessions:  "Sessions"
+        case .history:   "Historique"
         case .projects:  "Projets"
         case .ports:     "Ports"
         case .docker:    "Docker"
@@ -79,6 +80,7 @@ enum WidgetSubpage: String, CaseIterable, Identifiable {
         case .mcp:       "Configuration"
         case .stats:     "Statistiques"
         case .processes: "Processus"
+        case .memory:    "Mémoire"
         case .battery:  "Batterie"
         case .controls: "Son & écran"
         case .shelf:    "Étagère"
@@ -116,6 +118,12 @@ struct NotchContentView: View {
     /// Survol du bandeau fermé : il s'enrichit et descend un peu, sans s'ouvrir.
     private var isPeeking: Bool { panelManager.isHovering && !isExpanded }
 
+    /// Résumé de fin de discussion, déplié sous le bandeau le temps de la bannière.
+    private var showsDoneDrawer: Bool {
+        !isExpanded && activities.current == .claudeDone
+            && claudeStateMachine.sessionStore.finishedNotice != nil
+    }
+
     private var panelAnimation: Animation {
         isExpanded
             ? .spring(response: 0.42, dampingFraction: 0.8)
@@ -128,7 +136,7 @@ struct NotchContentView: View {
 
     private var bottomCornerRadius: CGFloat {
         if isExpanded { return cornerRadii.opened.bottom }
-        return isPeeking ? 18 : cornerRadii.closed.bottom
+        return isPeeking || showsDoneDrawer ? 18 : cornerRadii.closed.bottom
     }
 
     private var currentSubpage: WidgetSubpage? {
@@ -156,6 +164,7 @@ struct NotchContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(panelAnimation, value: isExpanded)
         .animation(.spring(response: 0.30, dampingFraction: 0.80), value: panelManager.isHovering)
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: showsDoneDrawer)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: tab)
         .animation(.spring(response: 0.30, dampingFraction: 0.88), value: currentSubpage)
         .onReceive(NotificationCenter.default.publisher(for: .notchShouldCollapse)) { _ in
@@ -200,7 +209,10 @@ struct NotchContentView: View {
         }
         .onChange(of: claudeStateMachine.sessionStore.finishedNotice) { _, notice in
             guard notice != nil, settings.barShowClaudeDone, !isExpanded else { return }
-            activities.show(.claudeDone, for: 8)
+            activities.show(.claudeDone, for: 10)
+        }
+        .onChange(of: showsDoneDrawer, initial: true) { _, shows in
+            panelManager.showsDrawer = shows
         }
     }
 
@@ -211,6 +223,11 @@ struct NotchContentView: View {
                 notchStrip
             } else {
                 collapsedBar
+                if showsDoneDrawer, let notice = claudeStateMachine.sessionStore.finishedNotice {
+                    ClaudeDoneDrawer(notice: notice)
+                        .frame(width: notchSize.width - 10 + 2 * (104 + 4))
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
 
             if isExpanded {
@@ -361,7 +378,8 @@ struct NotchContentView: View {
         case .home:
             switch currentSubpage ?? .summary {
             case .agenda: AgendaPageView()
-            default:      NotchHomeView(statsModel: statsModel, musicManager: musicManager, batteryModel: batteryModel)
+            default:      NotchHomeView(statsModel: statsModel, musicManager: musicManager, batteryModel: batteryModel,
+                                        onOpenMedia: { select(.media) })
             }
         case .dev:
             switch currentSubpage ?? .projects {
@@ -374,12 +392,14 @@ struct NotchContentView: View {
             MediaPlayerView(musicManager: musicManager)
         case .claude:
             switch currentSubpage ?? .sessions {
-            case .mcp: ClaudeSetupView()
+            case .mcp:     ClaudeSetupView()
+            case .history: ClaudeHistoryView()
             default:   ClaudeView(stateMachine: claudeStateMachine)
             }
         case .system:
             switch currentSubpage ?? .stats {
             case .processes: ProcessesPageView()
+            case .memory:    MemoryPageView()
             case .cleanup:   CleanupPageView()
             case .battery:   BatteryView(battery: batteryModel)
             case .controls:  InlineHUD(volumeManager: volumeManager, brightnessManager: brightnessManager)
@@ -404,6 +424,8 @@ struct NotchHomeView: View {
     var statsModel: SystemStatsModel
     var musicManager: MusicManager
     var batteryModel: BatteryModel
+    /// Le bloc « En cours » mène à la page Média ; ses boutons restent des boutons.
+    var onOpenMedia: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -578,6 +600,9 @@ struct NotchHomeView: View {
                 .foregroundStyle(Color.white.opacity(0.72))
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpenMedia)
+        .help("Ouvrir Média")
     }
 
     private var isSpotify: Bool { musicManager.bundleIdentifier == "com.spotify.client" }

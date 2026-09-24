@@ -70,6 +70,11 @@ final class ClaudeSessionStore {
 
         let session = getOrCreateSession(sessionId: event.sessionId, cwd: event.cwd, isInteractive: isInteractive)
         session.recordAncestors(event.ancestors)
+        // Fin de tour ou nouveau message : le titre a pu changer, on relit sans attendre.
+        session.refreshAutoTitle(
+            transcriptPath: event.transcriptPath,
+            force: event.event == "Stop" || event.event == "UserPromptSubmit"
+        )
         let isProcessing = event.status != "waiting_for_input"
         session.updateProcessingState(isProcessing: isProcessing)
 
@@ -78,12 +83,19 @@ final class ClaudeSessionStore {
             if let prompt = event.userPrompt {
                 session.recordUserPrompt(prompt)
             }
+            // Le sujet peut avoir bougé : si le résumé de Claude date, on lui en
+            // redemande un, que le hook relaiera au prochain outil appelé.
+            if session.isInteractive && session.needsFreshSummary {
+                session.requestSummary()
+            }
             session.updateTask(.working)
 
         case "PreCompact":
             session.updateTask(.compacting)
 
         case "SessionStart":
+            // Une reprise (`--resume`) garde l'identifiant : elle n'est plus terminée.
+            ClaudeEndedSessions.forget(session.id)
             if isProcessing { session.updateTask(.working) }
 
         case "PreToolUse":
@@ -119,6 +131,7 @@ final class ClaudeSessionStore {
             session.updateTask(.idle)
 
         case "SessionEnd":
+            ClaudeEndedSessions.record(session.id)
             session.endSession()
             removeSession(event.sessionId)
 

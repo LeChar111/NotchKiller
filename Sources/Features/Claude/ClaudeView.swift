@@ -84,6 +84,16 @@ struct ClaudeView: View {
 
                 Spacer(minLength: 4)
 
+                if isHovered {
+                    HStack(spacing: 5) {
+                        if !session.ancestorPIDs.isEmpty {
+                            terminalButton(session)
+                        }
+                        openButton(session)
+                    }
+                    .transition(.opacity)
+                }
+
                 Text(session.formattedDuration)
                     .font(NK.mono(10))
                     .foregroundStyle(NK.t3)
@@ -125,6 +135,27 @@ struct ClaudeView: View {
         .animation(.smooth(duration: 0.22), value: isHovered)
     }
 
+    /// Nouveau terminal dans le dossier de la session, à côté de Claude.
+    private func openButton(_ session: ClaudeSessionData) -> some View {
+        Button {
+            ClaudeLauncher.openTerminal(at: session.cwd)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "plus.rectangle.on.folder")
+                    .font(.system(size: 9.5))
+                Text("Ouvrir")
+                    .font(NK.ui(9.5, .semibold))
+            }
+            .foregroundStyle(NK.t2)
+            .padding(.horizontal, 8)
+            .frame(height: 20)
+            .background(Capsule().fill(Color.white.opacity(0.07)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Ouvrir un terminal dans \(session.cwd)")
+    }
+
     /// Ramène à la fenêtre où la conversation se déroule.
     private func terminalButton(_ session: ClaudeSessionData) -> some View {
         Button {
@@ -146,17 +177,19 @@ struct ClaudeView: View {
         .help("Revenir à la discussion")
     }
 
-    /// Ce que Claude dit lui-même de la conversation, poussé par l'outil MCP.
+    /// Description de la conversation : le résumé poussé par Claude via MCP, ou
+    /// à défaut le titre que Claude Code génère lui-même — le plus récent gagne.
     @ViewBuilder
     private func summaryBlock(_ session: ClaudeSessionData) -> some View {
+        let current = session.currentDescription
         VStack(alignment: .leading, spacing: 5) {
-            if let summary = session.summary {
-                Text(summary)
+            if let current {
+                Text(current.text)
                     .font(NK.ui(11, .semibold))
                     .foregroundStyle(Color.white.opacity(0.88))
                     .fixedSize(horizontal: false, vertical: true)
 
-                if let detail = session.summaryDetail {
+                if let detail = current.detail {
                     Text(detail)
                         .font(NK.ui(10, .medium))
                         .foregroundStyle(NK.t3)
@@ -169,8 +202,10 @@ struct ClaudeView: View {
             }
 
             HStack(spacing: 8) {
-                if let updated = session.summaryUpdatedAt, session.summary != nil {
-                    Text("Résumé par Claude · \(Self.timeFormatter.string(from: updated))")
+                if let current {
+                    Text(current.fromClaude
+                         ? "Résumé par Claude · \(Self.timeFormatter.string(from: session.summaryUpdatedAt ?? Date()))"
+                         : "Titre auto · Claude Code")
                         .font(NK.mono(8.5))
                         .foregroundStyle(NK.t4)
                 }
@@ -184,7 +219,7 @@ struct ClaudeView: View {
         .padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(session.summary == nil ? Color.white.opacity(0.03) : NK.accent.opacity(0.10))
+                .fill(current == nil ? Color.white.opacity(0.03) : NK.accent.opacity(0.10))
         )
     }
 

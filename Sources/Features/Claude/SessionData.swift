@@ -22,6 +22,40 @@ final class ClaudeSessionData: Identifiable {
     private(set) var summaryUpdatedAt: Date?
     private(set) var summaryRequestedAt: Date?
 
+    /// Titre que Claude Code génère lui-même dans le transcript — toujours
+    /// présent, contrairement au résumé MCP qui dépend du modèle.
+    private(set) var autoTitle: String?
+    private(set) var autoTitleChangedAt: Date?
+    private var transcriptPath: String?
+    private var titleRefreshedAt: Date?
+    private var titleRefreshTask: Task<Void, Never>?
+
+    /// Description affichée : la plus récente des deux sources.
+    var currentDescription: (text: String, detail: String?, fromClaude: Bool)? {
+        if let summary, let updated = summaryUpdatedAt,
+           autoTitleChangedAt.map({ updated >= $0 }) ?? true {
+            return (summary, summaryDetail, true)
+        }
+        if let autoTitle { return (autoTitle, nil, false) }
+        if let summary { return (summary, summaryDetail, true) }
+        return nil
+    }
+
+    /// Au-delà, un nouveau message déclenche une demande de mise à jour à Claude.
+    private static let summaryMaxAge: TimeInterval = 600
+    private static let titleRefreshInterval: TimeInterval = 10
+
+    /// Une session sans l'outil MCP (lancée avant son installation) ne répondra
+    /// jamais : après une demande restée sans réponse, on ne relance plus.
+    var needsFreshSummary: Bool {
+        guard !isSummaryPending else { return false }
+        if let requested = summaryRequestedAt, summaryUpdatedAt.map({ $0 < requested }) ?? true {
+            return false
+        }
+        guard let updated = summaryUpdatedAt else { return true }
+        return Date().timeIntervalSince(updated) > Self.summaryMaxAge
+    }
+
     /// Une demande reste « en attente » tant que Claude n'a pas répondu, et au
     /// plus 3 minutes : au-delà, la session ne travaille manifestement plus.
     var isSummaryPending: Bool {
@@ -47,6 +81,15 @@ final class ClaudeSessionData: Identifiable {
     private var sleepTimer: Task<Void, Never>?
     private static let maxEvents = 20
     private static let sleepDelay: Duration = .seconds(300)
+
+    /// Le processus `claude` tourne-t-il encore ? Une session qui a crashé
+    /// n'envoie jamais `SessionEnd` : seul son PID dit qu'elle est morte.
+    var isAlive: Bool {
+        if let pid = ancestorPIDs.first, pid > 1 {
+            return kill(pid_t(pid), 0) == 0 || errno == EPERM
+        }
+        return Date().timeIntervalSince(lastActivity) < 300
+    }
 
     var projectName: String {
         (cwd as NSString).lastPathComponent
@@ -101,6 +144,28 @@ final class ClaudeSessionData: Identifiable {
         finishedAt = Date()
         isProcessing = false
         return duration
+    }
+
+    /// Relit le titre généré par Claude Code, hors du fil principal et au plus
+    /// toutes les 10 s — le transcript peut peser plusieurs mégaoctets.
+    func refreshAutoTitle(transcriptPath path: String?, force: Bool = false) {
+        if let path, !path.isEmpty { transcriptPath = path }
+        guard let transcriptPath, titleRefreshTask == nil else { return }
+        if !force, autoTitle != nil, let last = titleRefreshedAt,
+           Date().timeIntervalSince(last) < Self.titleRefreshInterval { return }
+
+        titleRefreshedAt = Date()
+        titleRefreshTask = Task { [weak self] in
+            let title = await Task.detached(priority: .utility) {
+                TranscriptTitle.latest(in: transcriptPath)
+            }.value
+            guard let self else { return }
+            titleRefreshTask = nil
+            if let title, title != autoTitle {
+                autoTitle = title
+                autoTitleChangedAt = Date()
+            }
+        }
     }
 
     func requestSummary() {
@@ -161,6 +226,7 @@ final class ClaudeSessionData: Identifiable {
     func endSession() {
         durationTimer?.cancel()
         sleepTimer?.cancel()
+        titleRefreshTask?.cancel()
         isProcessing = false
     }
 

@@ -6,6 +6,9 @@ struct MediaPlayerView: View {
     var library: MediaLibrary = .shared
 
     @State private var hovered: String?
+    @State private var renaming: String?
+    @State private var draftName = ""
+    @FocusState private var renameFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -191,44 +194,46 @@ struct MediaPlayerView: View {
 
         return VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Button { library.play(playlist) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: playlist.link == nil ? "music.note.list" : "link")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(isHovered ? NK.accent : NK.t4)
-                            .frame(width: 16)
+                if renaming == playlist.id {
+                    renameField(playlist)
+                } else {
+                    Button { library.play(playlist) } label: {
+                        HStack(spacing: 10) {
+                            playlistArtwork(playlist, isHovered: isHovered)
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(playlist.name)
-                                .font(NK.ui(11.5, .semibold))
-                                .foregroundStyle(NK.t1)
-                                .lineLimit(1)
-                            Text(playlist.subtitle)
-                                .font(NK.ui(9.5, .medium))
-                                .foregroundStyle(NK.t4)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(playlist.name)
+                                    .font(NK.ui(11.5, .semibold))
+                                    .foregroundStyle(NK.t1)
+                                    .lineLimit(1)
+                                Text(playlist.subtitle)
+                                    .font(NK.ui(9.5, .medium))
+                                    .foregroundStyle(NK.t4)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            if isHovered {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(NK.accent)
+                            }
                         }
-
-                        Spacer(minLength: 0)
-
-                        if isHovered {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(NK.accent)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                if playlist.link != nil && isHovered {
-                    Button { library.removePinned(playlist) } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(NK.t3)
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                }
+
+                if playlist.link != nil && isHovered && renaming != playlist.id {
+                    rowButton("pencil", help: "Renommer") {
+                        draftName = playlist.name
+                        renaming = playlist.id
+                        renameFocused = true
+                    }
+                    rowButton("arrow.triangle.2.circlepath", help: "Récupérer le nom et la pochette") {
+                        library.fetchMetadata(for: playlist, force: true)
+                    }
+                    rowButton("xmark", help: "Retirer") { library.removePinned(playlist) }
                 }
             }
             .padding(.vertical, 7)
@@ -237,6 +242,59 @@ struct MediaPlayerView: View {
             Hairline()
         }
         .animation(.smooth(duration: 0.15), value: isHovered)
+    }
+
+    /// Pochette récupérée pour les liens épinglés, icône sinon.
+    @ViewBuilder
+    private func playlistArtwork(_ playlist: MediaPlaylist, isHovered: Bool) -> some View {
+        let icon = Image(systemName: playlist.link == nil ? "music.note.list" : "link")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isHovered ? NK.accent : NK.t4)
+
+        if let artwork = playlist.artworkURL, let url = URL(string: artwork) {
+            AsyncImage(url: url) { image in
+                image.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: {
+                icon
+            }
+            .frame(width: 30, height: 30)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        } else {
+            icon.frame(width: 30)
+        }
+    }
+
+    private func renameField(_ playlist: MediaPlaylist) -> some View {
+        HStack(spacing: 8) {
+            playlistArtwork(playlist, isHovered: true)
+            TextField("Nom de la playlist", text: $draftName)
+                .textFieldStyle(.plain)
+                .font(NK.ui(11.5, .semibold))
+                .foregroundStyle(NK.t1)
+                .focused($renameFocused)
+                .onSubmit { commitRename(playlist) }
+                .onExitCommand { renaming = nil }
+            rowButton("checkmark", help: "Valider") { commitRename(playlist) }
+            rowButton("xmark", help: "Annuler") { renaming = nil }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func commitRename(_ playlist: MediaPlaylist) {
+        library.rename(playlist, to: draftName)
+        renaming = nil
+    }
+
+    private func rowButton(_ icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(NK.t3)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     // MARK: Lecture en cours
