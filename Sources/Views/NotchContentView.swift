@@ -170,6 +170,14 @@ struct NotchContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .notchShouldCollapse)) { _ in
             panelManager.collapse()
         }
+        .onReceive(NotificationCenter.default.publisher(for: Demo.navigate)) { note in
+            guard let target = (note.userInfo?["tab"] as? String).flatMap(WidgetTab.init) else { return }
+            tab = target
+            if let sub = (note.userInfo?["subpage"] as? String).flatMap(WidgetSubpage.init),
+               target.subpages.contains(sub) {
+                subpages[target] = sub
+            }
+        }
         .onChange(of: isExpanded) { _, expanded in
             if expanded {
                 if settings.rememberLastTab, let saved = WidgetTab(rawValue: settings.lastTab) {

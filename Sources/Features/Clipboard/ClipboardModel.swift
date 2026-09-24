@@ -56,6 +56,7 @@ final class ClipboardModel {
     /// L'historique reste en mémoire : rien n'est écrit sur disque, et il part
     /// avec l'app. Un presse-papiers persistant est un dépôt de secrets.
     func start() {
+        if Demo.isActive { loadDemo(); return }
         guard poller == nil else { return }
         isWatching = true
         poller = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
@@ -155,5 +156,25 @@ final class ClipboardModel {
             && !trimmed.contains("(") { return .css }
 
         return .text
+    }
+}
+
+// MARK: - Démo
+
+extension ClipboardModel {
+    func loadDemo() {
+        guard entries.isEmpty else { return }
+        let samples = [
+            "npm run build && npm run preview",
+            "https://github.com/LeChar111/NotchKiller",
+            "func greet(_ name: String) -> String {\n    \"Bonjour, \\(name) !\"\n}",
+            "{ \"theme\": \"dark\", \"accent\": \"#7C5CFF\" }",
+            "SELECT id, email FROM users WHERE created_at > now() - interval '7 days';",
+            "Merci pour la relecture, je pousse la correction ce soir.",
+        ]
+        entries = samples.enumerated().map { index, text in
+            ClipEntry(id: UUID(), text: text, kind: Self.detect(text),
+                      capturedAt: Demo.ago(Double(index) * 420 + 30), isPinned: index == 1)
+        }
     }
 }

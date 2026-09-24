@@ -301,6 +301,8 @@ struct ToolsPageView: View {
     private func refreshApps() {
         runningApps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            // En démo, seules les apps d'Apple : rien de ce qui est installé ici.
+            .filter { !Demo.isActive || ($0.bundleIdentifier ?? "").hasPrefix("com.apple.") }
             .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
     }
 

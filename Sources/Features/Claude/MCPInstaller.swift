@@ -17,6 +17,7 @@ struct MCPInstaller {
 
     /// Commande actuellement déclarée dans `~/.claude.json`, telle qu'elle y figure.
     static var registeredCommand: String? {
+        if Demo.isActive { return executablePath }
         guard let servers = currentServers(at: primaryConfigURL),
               let entry = servers[serverName] as? [String: Any] else { return nil }
         return entry["command"] as? String
@@ -31,6 +32,7 @@ struct MCPInstaller {
     /// Installé seulement si chaque profil le déclare : un profil oublié, c'est
     /// autant de sessions qui ne peuvent jamais se décrire.
     static func isInstalled() -> Bool {
+        if Demo.isActive { return true }
         let urls = configURLs
         return !urls.isEmpty && urls.allSatisfy(isInstalled(at:))
     }
@@ -94,6 +96,7 @@ struct MCPInstaller {
     }
 
     static var executablePath: String {
-        Bundle.main.executablePath ?? CommandLine.arguments.first ?? "NotchKiller"
+        if Demo.isActive { return "~/Applications/NotchKiller.app/Contents/MacOS/NotchKiller" }
+        return Bundle.main.executablePath ?? CommandLine.arguments.first ?? "NotchKiller"
     }
 }

@@ -18,6 +18,7 @@ struct DevProject: Identifiable, Equatable {
 
     var displayPath: String {
         path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+            .replacingOccurrences(of: Demo.home, with: "~")
     }
 }
 
@@ -57,6 +58,8 @@ final class DevModel {
             guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
             return DevEditor(bundleID: bundleID, name: name, url: url)
         }
+
+        if Demo.isActive { loadDemo(); return }
 
         let favorites = Set(AppSettings.shared.favoriteProjects)
         let roots = AppSettings.shared.projectRoots
@@ -277,4 +280,24 @@ final class DevModel {
 
 private extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+// MARK: - Démo
+
+extension DevModel {
+    func loadDemo() {
+        let root = "\(Demo.home)/Projects"
+        projects = [
+            DevProject(path: "\(root)/aurora-web", name: "aurora-web", branch: "feat/dark-pricing",
+                       lastUsed: Demo.ago(120), isFavorite: true),
+            DevProject(path: "\(root)/orbit-api", name: "orbit-api", branch: "fix/webhook-signature",
+                       lastUsed: Demo.ago(900), isFavorite: true),
+            DevProject(path: "\(root)/lumen-ios", name: "lumen-ios", branch: "release/2.4",
+                       lastUsed: Demo.ago(5400), isFavorite: false),
+            DevProject(path: "\(root)/atlas-docs", name: "atlas-docs", branch: "main",
+                       lastUsed: Demo.ago(86_400), isFavorite: false),
+            DevProject(path: "\(root)/pixel-kit", name: "pixel-kit", branch: "main",
+                       lastUsed: Demo.ago(3 * 86_400), isFavorite: false),
+        ]
+    }
 }

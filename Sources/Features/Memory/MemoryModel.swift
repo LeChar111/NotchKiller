@@ -75,6 +75,7 @@ final class MemoryModel {
     // MARK: Relevé
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         guard !isRefreshing else { return }
         isRefreshing = true
         let uid = getuid(), own = ProcessInfo.processInfo.processIdentifier
@@ -234,5 +235,26 @@ final class MemoryModel {
                 self.refresh()
             }
         }
+    }
+}
+
+// MARK: - Démo
+
+extension MemoryModel {
+    func loadDemo() {
+        let gb = 1_073_741_824.0
+        swapUsed = 1.2 * gb
+        swapTotal = 2 * gb
+        pressure = .warning
+        hogs = [
+            MemoryHog(pid: 611, name: "Safari", command: "/Applications/Safari.app", footprint: 2.4 * gb,
+                      resident: 1.8 * gb, elapsed: "03:12:40", ageSeconds: 11_560, isApp: true),
+            MemoryHog(pid: 902, name: "Xcode", command: "/Applications/Xcode.app", footprint: 1.9 * gb,
+                      resident: 1.5 * gb, elapsed: "01:48:05", ageSeconds: 6_485, isApp: true),
+            MemoryHog(pid: 48211, name: "node", command: "node server.js", footprint: 0.8 * gb,
+                      resident: 0.6 * gb, elapsed: "02-04:10:00", ageSeconds: 187_800, isApp: false),
+            MemoryHog(pid: 812, name: "postgres", command: "postgres -D /usr/local/var/postgres",
+                      footprint: 0.21 * gb, resident: 0.18 * gb, elapsed: "05:00:12", ageSeconds: 18_012, isApp: false),
+        ]
     }
 }

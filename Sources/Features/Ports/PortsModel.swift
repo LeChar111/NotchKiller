@@ -45,6 +45,7 @@ final class PortsModel {
     }
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         guard !isRefreshing else { return }
         isRefreshing = true
         let uid = getuid()
@@ -120,5 +121,19 @@ final class PortsModel {
             try? await Task.sleep(for: .milliseconds(800))
             refresh()
         }
+    }
+}
+
+// MARK: - Démo
+
+extension PortsModel {
+    func loadDemo() {
+        ports = [
+            ListeningPort(port: 3000, pid: 48211, process: "node", isOwned: true),
+            ListeningPort(port: 5173, pid: 48302, process: "vite", isOwned: true),
+            ListeningPort(port: 5432, pid: 812, process: "postgres", isOwned: true),
+            ListeningPort(port: 6379, pid: 845, process: "redis-server", isOwned: true),
+            ListeningPort(port: 8080, pid: 51007, process: "python3", isOwned: true),
+        ]
     }
 }

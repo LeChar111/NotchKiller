@@ -39,7 +39,10 @@ final class MediaLibrary {
 
     private static let pinnedKey = "media.pinned"
 
-    private init() { loadPinned() }
+    private init() {
+        if Demo.isActive { loadDemo(); return }
+        loadPinned()
+    }
 
     var defaultSource: MediaSource? {
         let stored = AppSettings.shared.defaultMediaBundleID
@@ -49,6 +52,7 @@ final class MediaLibrary {
     var isAppleMusic: Bool { defaultSource?.bundleID == "com.apple.Music" }
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         sources = Self.known.compactMap { bundleID, name in
             guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
             return MediaSource(bundleID: bundleID, name: name, url: url)
@@ -246,5 +250,22 @@ final class MediaLibrary {
             return entry
         }
         UserDefaults.standard.set(raw, forKey: Self.pinnedKey)
+    }
+}
+
+// MARK: - Démo
+
+extension MediaLibrary {
+    func loadDemo() {
+        sources = Self.known.compactMap { bundleID, name in
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+            return MediaSource(bundleID: bundleID, name: name, url: url)
+        }
+        playlists = [
+            MediaPlaylist(id: "p1", name: "Concentration profonde", subtitle: "42 titres", link: nil),
+            MediaPlaylist(id: "p2", name: "Synthwave du soir", subtitle: "28 titres", link: nil),
+            MediaPlaylist(id: "p3", name: "Jazz pour coder", subtitle: "61 titres", link: nil),
+        ]
+        pinned = []
     }
 }

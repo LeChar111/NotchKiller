@@ -21,6 +21,14 @@ final class ShelfModel {
     }()
 
     private init() {
+        if Demo.isActive {
+            items = [
+                ShelfItem(kind: .file(path: "/System/Library/CoreServices/Finder.app")),
+                ShelfItem(kind: .link(url: URL(string: "https://developer.apple.com/design/")!)),
+                ShelfItem(kind: .text(string: "Palette : #7C5CFF · #1B1B1F · #F5F5F7")),
+            ]
+            return
+        }
         load()
     }
 
@@ -163,6 +171,7 @@ final class ShelfModel {
     // MARK: - Persistence
 
     private func save() {
+        guard !Demo.isActive else { return }
         Task.detached { [items, persistenceURL] in
             try? JSONEncoder().encode(items).write(to: persistenceURL)
         }

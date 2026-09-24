@@ -37,6 +37,7 @@ final class BluetoothModel {
     var connected: [BluetoothDevice] { devices.filter(\.isConnected) }
 
     func start() {
+        if Demo.isActive { loadDemo(); return }
         guard timer == nil else { return }
         refresh()
         // system_profiler est coûteux : 15 s suffisent pour un événement
@@ -48,6 +49,7 @@ final class BluetoothModel {
     }
 
     func refresh() {
+        if Demo.isActive { loadDemo(); return }
         Task.detached(priority: .utility) {
             let found = Self.snapshot()
             await MainActor.run { self.apply(found) }
@@ -119,5 +121,16 @@ final class BluetoothModel {
             return Int(text.filter(\.isNumber))
         }
         return nil
+    }
+}
+
+// MARK: - Démo
+
+extension BluetoothModel {
+    func loadDemo() {
+        devices = [
+            BluetoothDevice(address: "demo-1", name: "AirPods Pro", kind: "Headphones", isConnected: true, battery: 82),
+            BluetoothDevice(address: "demo-2", name: "Magic Keyboard", kind: "Keyboard", isConnected: true, battery: 64),
+        ]
     }
 }
