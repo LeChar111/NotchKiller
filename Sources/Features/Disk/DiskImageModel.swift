@@ -9,7 +9,7 @@ import Foundation
 /// après chaque branchement ; ce modèle offre ce geste à la main.
 ///
 /// Désactivé tant qu'aucune image n'est déclarée :
-///   defaults write com.flux.notchkiller disk.imagePath /Volumes/SSD/Apps.sparsebundle
+///   defaults write io.github.lechar111.notchkiller disk.imagePath /Volumes/SSD/Apps.sparsebundle
 /// Le volume monté porte le nom du fichier, sans extension.
 @MainActor
 @Observable

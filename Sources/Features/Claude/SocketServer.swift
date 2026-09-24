@@ -9,7 +9,7 @@ final class SocketServer {
     private var serverSocket: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private var eventHandler: HookEventHandler?
-    private let queue = DispatchQueue(label: "com.flux.notchkiller.socket", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "io.github.lechar111.notchkiller.socket", qos: .userInitiated)
 
     private init() {}
 

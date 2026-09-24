@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="NotchKiller"
 VERSION="2.1.0"
-BUNDLE_ID="com.flux.notchkiller"
+BUNDLE_ID="io.github.lechar111.notchkiller"
 BUILD_DIR="$ROOT_DIR/build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 BIN_PATH="$APP_DIR/Contents/MacOS/$APP_NAME"

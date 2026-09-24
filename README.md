@@ -78,10 +78,10 @@ Réglages optionnels, sans écran dédié :
 
 ```bash
 # Image disque APFS sur un SSD externe : active le bouton de montage (page Outils)
-defaults write com.flux.notchkiller disk.imagePath /Volumes/SSD/Apps.sparsebundle
+defaults write io.github.lechar111.notchkiller disk.imagePath /Volumes/SSD/Apps.sparsebundle
 
 # Dossier du toolkit Overleaf local (défaut : ~/Documents/Projects/overleaf-toolkit)
-defaults write com.flux.notchkiller dev.overleafToolkit ~/chemin/vers/overleaf-toolkit
+defaults write io.github.lechar111.notchkiller dev.overleafToolkit ~/chemin/vers/overleaf-toolkit
 ```
 
 ## Désinstallation
