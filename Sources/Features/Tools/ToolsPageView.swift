@@ -63,7 +63,7 @@ struct ToolsPageView: View {
 
             VStack(alignment: .leading, spacing: NK.sectionGap) {
                 awakeBlock
-                diskBlock
+                if DiskImageModel.isConfigured { diskBlock }
                 switcherBlock
             }
             .frame(width: 268, alignment: .topLeading)
@@ -203,10 +203,9 @@ struct ToolsPageView: View {
 
     // MARK: Bascule d'application
 
-    /// Le T9 ne peut pas porter de partition APFS native : l'espace
-    /// d'installation est une image disque, à monter après chaque branchement.
-    /// Le LaunchAgent le fait tout seul ; ce bouton sert à forcer le geste, et
-    /// surtout à éjecter proprement avant de débrancher le SSD.
+    /// Image disque d'installation posée sur un SSD externe (voir
+    /// `DiskImageModel`) : ce bouton la monte, et surtout l'éjecte proprement
+    /// avant de débrancher le disque.
     private var diskBlock: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
