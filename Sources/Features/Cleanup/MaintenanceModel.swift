@@ -25,6 +25,10 @@ struct AudioOffloadStatus: Decodable, Equatable {
     var onMacKB = 0
     var intruders = 0
     var updatedAt: Double = 0
+    // Données des éditeurs (banques de sons…) — absentes des états écrits avant leur prise en charge.
+    var supportOnMac: Int?
+    var supportOnDest: Int?
+    var supportOnMacKB: Int?
 }
 
 /// État publié par `nk-maintenance.sh` après chaque passage hebdomadaire.

@@ -7,7 +7,8 @@ enum MaintenanceScripts {
     static let audioOffloadName = "audio-plugins-offload.sh"
     static let maintenanceName = "nk-maintenance.sh"
 
-    /// Déplace les plug-ins audio vers un disque externe (lien à la place),
+    /// Déplace les plug-ins audio et les données des éditeurs (banques de sons, iZotope,
+    /// Native Instruments…) vers un disque externe (lien à la place),
     /// surveille les futurs, rapatrie, met les intrus en quarantaine. Tourne en root.
     static let audioOffload = #"""
 #!/bin/zsh -f
@@ -16,6 +17,7 @@ enum MaintenanceScripts {
 # remplacé par un lien symbolique : les DAW le retrouvent au même chemin.
 #
 #   sudo audio-plugins-offload.sh --dest DIR     déplace ce qui est encore sur le Mac
+#                                                (plug-ins + données des éditeurs audio)
 #   sudo audio-plugins-offload.sh --watch        + surveille les dossiers (futurs plug-ins)
 #   sudo audio-plugins-offload.sh --unwatch      arrête la surveillance
 #   sudo audio-plugins-offload.sh --restore      rapatrie tout sur le Mac
@@ -37,6 +39,17 @@ LOG="$LOGDIR/audio-offload.log"
 LOCK="/tmp/$LABEL.lock"
 SETTLE_MIN=10   # un plug-in modifié il y a moins de 10 min est peut-être en cours d'installation
 PLUGIN_EXT=(component vst vst3 clap aaxplugin)
+# Données des éditeurs (banques de sons, modèles, ressources partagées) rangées dans
+# /Library (ex. /Library/Arturia), /Library/Application Support ou /Users/Shared. Avid est exclu : ses plug-ins AAX
+# sont déplacés un par un.
+VENDORS=("iZotope" "Native Instruments" "Arturia" "D16 Group" "Kilohearts" "reFX" "Valhalla DSP"
+         "FabFilter" "Xfer Records" "Spectrasonics" "Output" "u-he" "Waves" "Soundtoys"
+         "Plugin Alliance" "Brainworx" "Eventide" "Softube" "Toontrack" "Spitfire Audio"
+         "Heavyocity" "UJAM" "sonible" "oeksound" "Cableguys" "Polyverse" "Baby Audio"
+         "AudioThing" "Goodhertz" "Sugar Bytes" "Tone2" "LennarDigital" "Rob Papen" "Vital Audio")
+VENDOR_BASES=("/Library" "/Library/Application Support" "/Users/Shared")
+# Logiciels qui chargent les plug-ins : on ne déplace rien pendant qu'ils tournent.
+DAWS="Live|Ableton Live.*|Logic Pro|Logic Pro X|MainStage|GarageBand|Pro Tools|REAPER|Bitwig Studio|FL Studio|Studio One|Cubase.*|Nuendo.*|Reason|rekordbox|Serato DJ.*|Traktor.*|Kontakt.*|Komplete Kontrol|Maschine.*|Analog Lab.*|Serum|Vital"
 
 MODE=run DEST="" QUIET=0
 while (( $# )); do
@@ -71,11 +84,28 @@ plugin_dirs() {
     for d in "$u"/Library/Audio/Plug-Ins/{Components,VST,VST3,CLAP}; do print -r -- "$d"; done
   done
 }
-kind_of() { [[ "$1" == *Avid* ]] && print AAX || print "${1:t}"; }
+kind_of() {
+  case "$1" in
+    *Avid*) print AAX ;;
+    /Library|"/Library/Application Support"|/Users/Shared) print Données ;;
+    *) print "${1:t}" ;;
+  esac
+}
+vendor_dirs() {
+  local base p v
+  for base in $VENDOR_BASES; do
+    for p in "$base"/*; do
+      for v in $VENDORS; do [[ "${p:t:l}" == "${v:l}"* ]] && { print -r -- "$p"; break; }; done
+    done
+  done
+}
 # Emplacement sur le disque : DEST/<type> (système) ou DEST/utilisateurs/<nom>/<type>
 target_of() {
   local dir="${1:h}"
-  if [[ "$dir" == /Users/* ]]; then print -r -- "$DEST/utilisateurs/${${dir#/Users/}%%/*}/$(kind_of "$dir")/${1:t}"
+  if [[ "$dir" == /Library ]]; then print -r -- "$DEST/Donnees/Library/${1:t}"
+  elif [[ "$dir" == "/Library/Application Support" ]]; then print -r -- "$DEST/Donnees/Application Support/${1:t}"
+  elif [[ "$dir" == /Users/Shared ]]; then print -r -- "$DEST/Donnees/Shared/${1:t}"
+  elif [[ "$dir" == /Users/* ]]; then print -r -- "$DEST/utilisateurs/${${dir#/Users/}%%/*}/$(kind_of "$dir")/${1:t}"
   else print -r -- "$DEST/$(kind_of "$dir")/${1:t}"; fi
 }
 # Un plug-in : un bundle audio, ou un dossier d'éditeur qui en contient.
@@ -95,11 +125,15 @@ for r,ds,fs in os.walk(sys.argv[1]):
         n+=1; s+=os.lstat(os.path.join(r,x)).st_size
 print(n,s)' "$1"; }
 
+daw_running() { pgrep -xq "$DAWS"; }
 installing() { pgrep -xq "installer|Installer|package_script_service|Native Access|Native Access 2|iZotope Product Portal|Waves Central|Arturia Software Center|Plugin Alliance Installation Manager|Splice|Splice Instrument|Spitfire Audio|Output Hub"; }
 
-count_state() {  # → ON_MAC ON_DEST MAC_KB INTRUDERS
-  ON_MAC=0 ON_DEST=0 MAC_KB=0 INTRUDERS=0
+count_state() {  # → ON_MAC ON_DEST MAC_KB INTRUDERS SUP_MAC SUP_DEST SUP_KB
+  ON_MAC=0 ON_DEST=0 MAC_KB=0 INTRUDERS=0 SUP_MAC=0 SUP_DEST=0 SUP_KB=0
   local dir p
+  for p in ${(f)"$(vendor_dirs)"}; do
+    if [[ -L "$p" ]]; then (( SUP_DEST++ )); else (( SUP_MAC++ )); SUP_KB=$(( SUP_KB + $(size_kb "$p") )); fi
+  done
   for dir in ${(f)"$(plugin_dirs)"}; do
     for p in "$dir"/*; do
       [[ "${p:t}" == .* ]] && continue
@@ -116,12 +150,14 @@ write_status() {  # $1 état, $2 message, [$3 fait, $4 total, $5 élément en co
   [[ -f "$PLIST" ]] && watching=true
   [[ -n "$DEST" && -d "${DEST:h}" ]] && mounted=true
   /usr/bin/python3 - "$STATUS" "$1" "$2" "${3:-0}" "${4:-0}" "${5:-}" "$DEST" $watching $mounted \
-    "${ON_MAC:-0}" "${ON_DEST:-0}" "${MAC_KB:-0}" "${INTRUDERS:-0}" "${MOVED:-0}" "${FAILED:-0}" "${DEFERRED:-0}" <<'PY'
+    "${ON_MAC:-0}" "${ON_DEST:-0}" "${MAC_KB:-0}" "${INTRUDERS:-0}" "${MOVED:-0}" "${FAILED:-0}" "${DEFERRED:-0}" \
+    "${SUP_MAC:-0}" "${SUP_DEST:-0}" "${SUP_KB:-0}" <<'PY'
 import json,sys,time,os
 a=sys.argv
 d=dict(state=a[2],message=a[3],done=int(a[4]),total=int(a[5]),current=a[6],dest=a[7],
        watching=a[8]=="true",destMounted=a[9]=="true",onMac=int(a[10]),onDest=int(a[11]),
        onMacKB=int(a[12]),intruders=int(a[13]),moved=int(a[14]),failed=int(a[15]),deferred=int(a[16]),
+       supportOnMac=int(a[17]),supportOnDest=int(a[18]),supportOnMacKB=int(a[19]),
        updatedAt=int(time.time()))
 tmp=a[1]+".tmp"; json.dump(d,open(tmp,"w"),ensure_ascii=False); os.chmod(tmp,0o644); os.replace(tmp,a[1])
 PY
@@ -139,6 +175,9 @@ if [[ $MODE == status ]]; then
   print "${B}Plug-ins audio${N}"
   print "  sur le Mac      : ${B}$ON_MAC${N} ($(human $MAC_KB))"
   print "  sur le disque   : ${B}$ON_DEST${N} (liens)"
+  print "${B}Données des éditeurs${N} (iZotope, Native Instruments, Arturia…)"
+  print "  sur le Mac      : ${B}$SUP_MAC${N} dossier(s) ($(human $SUP_KB))"
+  print "  sur le disque   : ${B}$SUP_DEST${N} (liens)"
   (( INTRUDERS )) && print "  ${Y}intrus${N}          : ${B}$INTRUDERS${N} fichiers qui ne sont pas des plug-ins (--quarantine)"
   print "  destination     : ${DEST:-${Y}non définie${N}} $([[ -n "$DEST" && -d "${DEST:h}" ]] && print "${G}branchée${N}" || print "${R}absente${N}")"
   print "  surveillance    : $([[ -f "$PLIST" ]] && print "${G}active${N}" || print "${D}inactive${N}")"
@@ -206,6 +245,13 @@ for dir in ${(f)"$(plugin_dirs)"}; do
     esac
   done
 done
+for p in ${(f)"$(vendor_dirs)"}; do
+  case $MODE in
+    restore)    [[ -L "$p" && "$(readlink "$p")" == "$DEST"/* ]] && items+=("$p") ;;
+    quarantine) ;;
+    *)          [[ -L "$p" ]] || items+=("$p") ;;
+  esac
+done
 total=${#items}
 count_state
 case $MODE in restore) verb="rapatrier" title="Rapatriement" ;; quarantine) verb="mettre en quarantaine" title="Quarantaine" ;; *) verb="déplacer" title="Déplacement" ;; esac
@@ -218,6 +264,10 @@ fi
 
 (( QUIET )) || print "${B}$title de $total élément(s)${N} ${D}→ $([[ $MODE == restore ]] && print "Mac" || print "$DEST")${N}\n"
 log "── début ($MODE, $total éléments, dest=$DEST)"
+if [[ $MODE == run || $MODE == restore ]] && daw_running; then
+  say "${Y}Un logiciel audio est ouvert${N} ($(pgrep -xl "$DAWS" | awk '{print $2}' | sort -u | paste -sd, -)) — ferme-le, report au prochain passage."
+  DEFERRED=$total; write_status deferred "Logiciel audio ouvert, report"; exit 0
+fi
 if [[ $MODE == run ]] && installing; then
   say "${Y}Une installation est en cours${N} — report au prochain passage."
   DEFERRED=$total; write_status deferred "Installation en cours, report"; exit 0
@@ -278,10 +328,10 @@ count_state
 case $MODE in
   restore)    summary="$MOVED rapatrié(s), $FAILED en échec" ;;
   quarantine) summary="$MOVED sorti(s) vers $QUAR, $FAILED en échec" ;;
-  dry)        summary="simulation — $total à déplacer, $DEFERRED reporté(s)" ;;
+  dry)        summary="simulation — $(( total - DEFERRED )) à déplacer maintenant, $DEFERRED reporté(s)" ;;
   *)          summary="$MOVED déplacé(s), $DEFERRED reporté(s), $FAILED en échec" ;;
 esac
-(( QUIET )) || print "\n${B}Bilan${N} : $summary\n       ${B}$ON_MAC${N} plug-in(s) sur le Mac ($(human $MAC_KB)), ${B}$ON_DEST${N} sur le disque$( (( INTRUDERS )) && print ", ${Y}$INTRUDERS intrus${N}")."
+(( QUIET )) || print "\n${B}Bilan${N} : $summary\n       ${B}$ON_MAC${N} plug-in(s) sur le Mac ($(human $MAC_KB)), ${B}$ON_DEST${N} sur le disque$( (( INTRUDERS )) && print ", ${Y}$INTRUDERS intrus${N}")\n       ${B}$SUP_MAC${N} dossier(s) de données sur le Mac ($(human $SUP_KB)), ${B}$SUP_DEST${N} sur le disque."
 log "── fin : $summary"
 write_status idle "$summary"
 exit $(( FAILED > 0 ))

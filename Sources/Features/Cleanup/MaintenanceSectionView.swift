@@ -108,10 +108,16 @@ struct MaintenanceSectionView: View {
         let audio = model.audio
         return card(title: "Plug-ins audio", icon: "pianokeys") {
             if model.audioDest.isEmpty {
-                note("VST, VST3, AU, CLAP et AAX déplacés sur un disque externe, remplacés par des liens : les DAW les retrouvent au même endroit.")
+                note("VST, VST3, AU, CLAP, AAX et données des éditeurs (banques de sons, iZotope, Native Instruments…) déplacés sur un disque externe, remplacés par des liens : les DAW les retrouvent au même endroit.")
             } else {
                 metric("\(audio.onMac)", "sur le Mac · \(Shell.formatBytes(Double(audio.onMacKB) * 1024))",
                        trailing: "\(audio.onDest) déplacés")
+                if let onMac = audio.supportOnMac {
+                    statusLine(onMac == 0 ? NK.ok : NK.t4,
+                               onMac == 0
+                                   ? "Données des éditeurs : \(audio.supportOnDest ?? 0) dossier(s) sur le disque"
+                                   : "Données des éditeurs : \(onMac) dossier(s) sur le Mac · \(Shell.formatBytes(Double(audio.supportOnMacKB ?? 0) * 1024))")
+                }
                 statusLine(audio.watching ? NK.ok : NK.t4,
                            audio.watching ? "Surveillance active — les nouveaux plug-ins suivent" : "Surveillance inactive")
                 if audio.intruders > 0 {
