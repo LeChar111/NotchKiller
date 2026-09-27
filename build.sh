@@ -114,6 +114,27 @@ fi
 
 # Signature. Une signature ad hoc change à chaque compilation, donc macOS
 # redemande les autorisations à chaque fois : renseignez NK_SIGN_IDENTITY avec
+# ── Assistant root du déport des plug-ins audio ──────────────────────────────
+# Exécutable séparé : c'est lui qui reçoit l'Accès complet au disque (voir
+# Tools/audio-helper/main.swift). Signé avant l'app, dont la signature le scelle.
+HELPER_SRC="$ROOT_DIR/Tools/audio-helper/main.swift"
+if [[ -f "$HELPER_SRC" ]]; then
+  HELPER_BIN="$RESOURCES_DIR/NotchKillerAudioHelper"
+  if [[ "$UNIVERSAL" == "1" ]]; then
+    TMP="$(mktemp -d)"
+    xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-macos15.0 -O "$HELPER_SRC" -o "$TMP/h.arm64"
+    xcrun swiftc -sdk "$SDK_PATH" -target x86_64-apple-macos15.0 -O "$HELPER_SRC" -o "$TMP/h.x86_64"
+    lipo -create "$TMP/h.arm64" "$TMP/h.x86_64" -output "$HELPER_BIN"
+    rm -rf "$TMP"
+  else
+    xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-macos15.0 -O "$HELPER_SRC" -o "$HELPER_BIN"
+  fi
+  codesign --force --sign "${NK_HELPER_SIGN_IDENTITY:-${NK_SIGN_IDENTITY:--}}" \
+    --identifier "$BUNDLE_ID.audio-helper" --timestamp=none "$HELPER_BIN" >/dev/null 2>&1 \
+    || codesign --force --sign - --identifier "$BUNDLE_ID.audio-helper" "$HELPER_BIN" >/dev/null 2>&1 \
+    || true
+fi
+
 # une identité stable (voir Tools/setup-signing.sh) pour qu'elles tiennent.
 SIGN_IDENTITY="${NK_SIGN_IDENTITY:--}"
 codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$APP_DIR" >/dev/null 2>&1 \

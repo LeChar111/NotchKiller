@@ -24,6 +24,10 @@ enum MaintenanceScripts {
 #   sudo audio-plugins-offload.sh --quarantine   sort les fichiers qui ne sont pas des plug-ins
 #   audio-plugins-offload.sh --status | --dry-run
 #
+# Avec --watch --helper <NotchKillerAudioHelper>, le service lance cet assistant (qui
+# peut recevoir l'Accès complet au disque, contrairement à /bin/zsh) et lit les demandes
+# que NotchKiller dépose dans ~/Library/Application Support/NotchKiller/requests/.
+#
 # Généré par NotchKiller (Système › Nettoyage) — ne pas modifier à la main.
 setopt null_glob
 umask 022
@@ -33,6 +37,7 @@ SUPPORT="/Library/Application Support/NotchKiller"
 CONF="$SUPPORT/audio-offload.conf"
 STATUS="$SUPPORT/audio-offload-status.json"
 INSTALLED="$SUPPORT/audio-plugins-offload.sh"
+HELPER="$SUPPORT/NotchKillerAudioHelper"
 PLIST="/Library/LaunchDaemons/$LABEL.plist"
 LOGDIR="/Library/Logs/NotchKiller"
 LOG="$LOGDIR/audio-offload.log"
@@ -51,18 +56,32 @@ VENDOR_BASES=("/Library" "/Library/Application Support" "/Users/Shared")
 # Logiciels qui chargent les plug-ins : on ne déplace rien pendant qu'ils tournent.
 DAWS="Live|Ableton Live.*|Logic Pro|Logic Pro X|MainStage|GarageBand|Pro Tools|REAPER|Bitwig Studio|FL Studio|Studio One|Cubase.*|Nuendo.*|Reason|rekordbox|Serato DJ.*|Traktor.*|Kontakt.*|Komplete Kontrol|Maschine.*|Analog Lab.*|Serum|Vital"
 
-MODE=run DEST="" QUIET=0
+MODE=run DEST="" QUIET=0 DAEMON=0 HELPER_SRC=""
 while (( $# )); do
   case "$1" in
     --dest) DEST="$2"; shift ;;
     --watch) MODE=watch ;; --unwatch) MODE=unwatch ;; --restore) MODE=restore ;;
     --quarantine) MODE=quarantine ;; --status) MODE=status ;; --dry-run) MODE=dry ;;
-    --quiet) QUIET=1 ;;
+    --quiet) QUIET=1 ;; --daemon) DAEMON=1 ;;
+    --helper) HELPER_SRC="$2"; shift ;;
     -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) print -u2 "Option inconnue : $1"; exit 64 ;;
   esac; shift
 done
 [[ -z "$DEST" && -r "$CONF" ]] && DEST="$(sed -n 's/^DEST=//p' "$CONF")"
+REQUEST_DIR=""; [[ -r "$CONF" ]] && REQUEST_DIR="$(sed -n 's/^REQUEST_DIR=//p' "$CONF")"
+
+# Demande déposée par NotchKiller (déplacer, mettre en quarantaine, rapatrier). Le
+# dossier appartient à l'utilisateur : on ne lit qu'un fichier ordinaire, jamais un lien,
+# et seule l'une des trois actions connues est retenue ; la destination reste celle de
+# la configuration root.
+if (( DAEMON )) && [[ -n "$REQUEST_DIR" ]]; then
+  req="$REQUEST_DIR/audio-offload.request"
+  if [[ -f "$req" && ! -L "$req" ]]; then
+    action="$(head -c 32 "$req" | tr -cd 'a-z')"; rm -f "$req"
+    case "$action" in move) MODE=run ;; quarantine) MODE=quarantine ;; restore) MODE=restore ;; esac
+  fi
+fi
 DEST="${DEST%/}"
 
 # ── Affichage ────────────────────────────────────────────────────────────────
@@ -120,9 +139,13 @@ is_plugin() {
 fingerprint() { /usr/bin/python3 -c '
 import os,sys
 n=s=0
+import stat
 for r,ds,fs in os.walk(sys.argv[1]):
     for x in ds+fs:
-        n+=1; s+=os.lstat(os.path.join(r,x)).st_size
+        st=os.lstat(os.path.join(r,x))
+        # Tubes, sockets et périphériques : ditto ne les copie pas (et ce ne sont pas des données).
+        if stat.S_ISFIFO(st.st_mode) or stat.S_ISSOCK(st.st_mode) or stat.S_ISCHR(st.st_mode) or stat.S_ISBLK(st.st_mode): continue
+        n+=1; s+=st.st_size
 print(n,s)' "$1"; }
 
 daw_running() { pgrep -xq "$DAWS"; }
@@ -199,15 +222,27 @@ fi
 if [[ $MODE == watch ]]; then
   need_root; prepare
   [[ "$0" -ef "$INSTALLED" ]] || { cp -f "$0" "$INSTALLED" && chown root:wheel "$INSTALLED" && chmod 755 "$INSTALLED"; }
-  print -r -- "DEST=$DEST" > "$CONF"; chmod 644 "$CONF"
+  # L'assistant n'est installé qu'une fois : le remplacer ferait perdre l'Accès complet
+  # au disque que l'utilisateur lui a accordé (l'autorisation suit sa signature).
+  if [[ -n "$HELPER_SRC" && -f "$HELPER_SRC" && ! -e "$HELPER" ]]; then
+    cp -f "$HELPER_SRC" "$HELPER" && chown root:wheel "$HELPER" && chmod 755 "$HELPER" \
+      && say "Assistant installé : ${B}$HELPER${N} — accorde-lui l'Accès complet au disque."
+  fi
+  req_user="${SUDO_USER:-$(stat -f %Su /dev/console)}"
+  REQUEST_DIR="$(dscl . -read "/Users/$req_user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')/Library/Application Support/NotchKiller/requests"
+  mkdir -p "$REQUEST_DIR" && chown "$req_user" "$REQUEST_DIR"
+  print -r -- "DEST=$DEST" > "$CONF"; print -r -- "REQUEST_DIR=$REQUEST_DIR" >> "$CONF"; chmod 644 "$CONF"
+  if [[ -x "$HELPER" ]]; then program="    <string>$HELPER</string>"
+  else program="    <string>/bin/zsh</string><string>-f</string><string>$INSTALLED</string>"; fi
   watch=""
-  for d in /Library/Audio/Plug-Ins ${(f)"$(plugin_dirs)"}; do [[ -d "$d" ]] && watch+="    <string>${d//&/&amp;}</string>"$'\n'; done
+  for d in /Library/Audio/Plug-Ins ${(f)"$(plugin_dirs)"} "$REQUEST_DIR"; do [[ -d "$d" ]] && watch+="    <string>${d//&/&amp;}</string>"$'\n'; done
   cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LABEL</string>
-  <key>ProgramArguments</key><array><string>/bin/zsh</string><string>-f</string><string>$INSTALLED</string><string>--quiet</string></array>
+  <key>ProgramArguments</key><array>
+$program<string>--quiet</string><string>--daemon</string></array>
   <key>WatchPaths</key><array>
 $watch  </array>
   <key>StartInterval</key><integer>3600</integer>
@@ -220,6 +255,12 @@ EOF
   launchctl bootout system/$LABEL 2>/dev/null
   launchctl bootstrap system "$PLIST" && say "${G}Surveillance active${N} : tout nouveau plug-in partira sur ${B}$DEST${N} (${SETTLE_MIN} min après son installation, puis toutes les heures)."
   MODE=run
+  # Depuis l'app (pas de terminal), le passage est confié au service : un processus root
+  # lancé par AppleScript se verrait refuser le disque externe par macOS.
+  if [[ ! -t 1 && -x "$HELPER" ]]; then
+    print -r -- move > "$REQUEST_DIR/audio-offload.request"; chown "$req_user" "$REQUEST_DIR/audio-offload.request"
+    count_state; write_status queued "Passage confié au service"; exit 0
+  fi
 fi
 
 # ── Déplacement, rapatriement, quarantaine ───────────────────────────────────
