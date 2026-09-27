@@ -44,6 +44,9 @@ LOG="$LOGDIR/audio-offload.log"
 LOCK="/tmp/$LABEL.lock"
 SETTLE_MIN=10   # un plug-in modifié il y a moins de 10 min est peut-être en cours d'installation
 PLUGIN_EXT=(component vst vst3 clap aaxplugin)
+# Moteurs partagés rangés à côté des plug-ins (iZotope : iZOzone12Core.bundle dans le
+# dossier AAX). Ni intrus ni déplacés : le plug-in les cherche à cet endroit précis.
+KEEP_EXT=(bundle)
 # Données des éditeurs (banques de sons, modèles, ressources partagées) rangées dans
 # /Library (ex. /Library/Arturia), /Library/Application Support ou /Users/Shared. Avid est exclu : ses plug-ins AAX
 # sont déplacés un par un.
@@ -153,6 +156,7 @@ daw_running() { pgrep -xq "$DAWS"; }
 # après une installation : ce n'est pas un signal fiable, la règle des 10 min suffit.)
 installing() { pgrep -xq "installer|Installer|Native Access|Native Access 2|iZotope Product Portal|Waves Central|Arturia Software Center|Plugin Alliance Installation Manager|Splice|Splice Instrument|Spitfire Audio|Output Hub"; }
 
+is_kept() { [[ "${1:e}" == (${(j:|:)~KEEP_EXT}) ]]; }
 count_state() {  # → ON_MAC ON_DEST MAC_KB INTRUDERS SUP_MAC SUP_DEST SUP_KB
   ON_MAC=0 ON_DEST=0 MAC_KB=0 INTRUDERS=0 SUP_MAC=0 SUP_DEST=0 SUP_KB=0
   local dir p
@@ -162,6 +166,7 @@ count_state() {  # → ON_MAC ON_DEST MAC_KB INTRUDERS SUP_MAC SUP_DEST SUP_KB
   for dir in ${(f)"$(plugin_dirs)"}; do
     for p in "$dir"/*; do
       [[ "${p:t}" == .* ]] && continue
+      is_kept "$p" && continue
       if ! is_plugin "$p"; then (( INTRUDERS++ ))
       elif [[ -L "$p" ]]; then (( ON_DEST++ ))
       else (( ON_MAC++ )); MAC_KB=$(( MAC_KB + $(size_kb "$p") )); fi
@@ -298,7 +303,7 @@ for dir in ${(f)"$(plugin_dirs)"}; do
     [[ "${p:t}" == .* ]] && continue
     case $MODE in
       restore)    [[ -L "$p" && "$(readlink "$p")" == "$DEST"/* ]] && is_plugin "$p" && items+=("$p") ;;
-      quarantine) is_plugin "$p" || items+=("$p") ;;
+      quarantine) is_kept "$p" || is_plugin "$p" || items+=("$p") ;;
       *)          [[ ! -L "$p" ]] && is_plugin "$p" && items+=("$p") ;;
     esac
   done
