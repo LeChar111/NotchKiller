@@ -31,6 +31,11 @@ struct CleanupPageView: View {
                 .foregroundStyle(NK.t4)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 10)
+
+            Hairline()
+                .padding(.vertical, 12)
+
+            MaintenanceSectionView()
         }
         .padding(.top, 12)
         .padding(.bottom, 12)
