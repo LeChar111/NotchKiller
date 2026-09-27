@@ -351,7 +351,8 @@ for p in $items; do
   quarantine)
     q="$QUAR/$kind/$name"; mkdir -p "${q:h}"
     if [[ -L "$p" ]]; then src="$(readlink "$p")"
-      if [[ -e "$src" ]] && mv "$src" "$q"; then rm -f "$p"; say "$prefix  ${G}✓ sorti${N}"; (( MOVED++ ))
+      if [[ ! -e "$src" ]]; then rm -f "$p"; say "$prefix  ${G}✓ lien mort retiré${N}"; (( MOVED++ ))   # tube/socket jamais copié
+      elif mv "$src" "$q"; then rm -f "$p"; say "$prefix  ${G}✓ sorti${N}"; (( MOVED++ ))
       else say "$prefix  ${R}✗ échec${N}"; (( FAILED++ )); fi
     elif ditto "$p" "$q" && [[ "$(fingerprint "$p")" == "$(fingerprint "$q")" ]]; then
       rm -rf "$p"; say "$prefix  ${G}✓ sorti${N}"; (( MOVED++ ))
