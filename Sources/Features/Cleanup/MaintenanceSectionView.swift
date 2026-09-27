@@ -120,6 +120,9 @@ struct MaintenanceSectionView: View {
                 }
                 statusLine(audio.watching ? NK.ok : NK.t4,
                            audio.watching ? "Surveillance active — les nouveaux plug-ins suivent" : "Surveillance inactive")
+                if audio.state == "denied" {
+                    statusLine(NK.bad, "macOS bloque l'écriture sur le disque — lancer depuis un terminal")
+                }
                 if audio.intruders > 0 {
                     statusLine(NK.warn, "\(audio.intruders) fichiers étrangers dans les dossiers de plug-ins")
                 }

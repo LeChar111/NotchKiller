@@ -66,7 +66,9 @@ final class MaintenanceModel {
     private(set) var audio = AudioOffloadStatus()
     private(set) var audioRunning = false
     var audioDest: String {
-        didSet { UserDefaults.standard.set(audioDest, forKey: Self.destKey) }
+        // La démo partage le domaine de préférences de l'app réelle : elle ne doit
+        // jamais y laisser son disque fictif.
+        didSet { if !Demo.isActive { UserDefaults.standard.set(audioDest, forKey: Self.destKey) } }
     }
 
     // Entretien hebdomadaire
@@ -137,6 +139,7 @@ final class MaintenanceModel {
     /// Suppression directe, pas la corbeille : un cache mis à la corbeille occupe
     /// toujours le disque, et il se reconstruit de toute façon.
     func purgeCaches() {
+        if Demo.isActive { lastAction = "Mode démo — aucune action réelle"; return }
         guard !isScanningCaches else { return }
         // Une app a pu s'ouvrir depuis l'analyse : on refiltre au dernier moment.
         let running = Self.runningAppKeys()
@@ -152,6 +155,7 @@ final class MaintenanceModel {
                 self.caches.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
                 self.isScanningCaches = false
                 self.lastAction = summary
+                NotificationRelay.shared.announce("Nettoyage", summary)
                 self.refresh()
             }
         }
@@ -253,6 +257,7 @@ final class MaintenanceModel {
     }
 
     func chooseAudioDest() {
+        if Demo.isActive { lastAction = "Mode démo — aucune action réelle"; return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -269,6 +274,7 @@ final class MaintenanceModel {
 
     /// Lance le moteur en root (fenêtre de mot de passe macOS) et suit sa progression.
     func runAudio(_ action: AudioAction) {
+        if Demo.isActive { lastAction = "Mode démo — aucune action réelle"; return }
         guard !audioRunning, !audioDest.isEmpty || action == .unwatch else { return }
         audioRunning = true
         lastAction = "\(action.label) des plug-ins…"
@@ -295,6 +301,11 @@ final class MaintenanceModel {
                     self.lastAction = "\(action.label) : échec — voir le journal"
                 } else {
                     self.lastAction = self.audio.message.isEmpty ? "\(action.label) terminé" : self.audio.message
+                }
+                // L'action tourne dans le modèle, pas dans la vue : elle continue encoche
+                // repliée, et c'est là qu'on annonce sa fin.
+                if !cancelled, let message = self.lastAction {
+                    NotificationRelay.shared.announce("Plug-ins audio", message)
                 }
             }
         }
@@ -326,6 +337,7 @@ final class MaintenanceModel {
     }
 
     func installAgent() {
+        if Demo.isActive { lastAction = "Mode démo — aucune action réelle"; return }
         let script = MaintenanceScripts.install().appendingPathComponent(MaintenanceScripts.maintenanceName).path
         var arguments = ["/bin/zsh", "-f", script]
         if let root = externalRoot { arguments += ["--offload-root", root] }
@@ -351,6 +363,7 @@ final class MaintenanceModel {
     }
 
     func removeAgent() {
+        if Demo.isActive { lastAction = "Mode démo — aucune action réelle"; return }
         launchctl(["bootout", "gui/\(getuid())/\(Self.agentLabel)"])
         try? FileManager.default.removeItem(at: agentPlistURL)
         lastAction = "Entretien hebdomadaire désactivé"
@@ -358,6 +371,7 @@ final class MaintenanceModel {
     }
 
     func runAgentNow() {
+        if Demo.isActive { lastAction = "Mode démo — aucune action réelle"; return }
         if !agentInstalled { installAgent() }
         launchctl(["kickstart", "gui/\(getuid())/\(Self.agentLabel)"])
         lastAction = "Entretien lancé"

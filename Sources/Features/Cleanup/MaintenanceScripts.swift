@@ -126,7 +126,9 @@ for r,ds,fs in os.walk(sys.argv[1]):
 print(n,s)' "$1"; }
 
 daw_running() { pgrep -xq "$DAWS"; }
-installing() { pgrep -xq "installer|Installer|package_script_service|Native Access|Native Access 2|iZotope Product Portal|Waves Central|Arturia Software Center|Plugin Alliance Installation Manager|Splice|Splice Instrument|Spitfire Audio|Output Hub"; }
+# (package_script_service est un service XPC de PackageKit qui peut traîner des heures
+# après une installation : ce n'est pas un signal fiable, la règle des 10 min suffit.)
+installing() { pgrep -xq "installer|Installer|Native Access|Native Access 2|iZotope Product Portal|Waves Central|Arturia Software Center|Plugin Alliance Installation Manager|Splice|Splice Instrument|Spitfire Audio|Output Hub"; }
 
 count_state() {  # → ON_MAC ON_DEST MAC_KB INTRUDERS SUP_MAC SUP_DEST SUP_KB
   ON_MAC=0 ON_DEST=0 MAC_KB=0 INTRUDERS=0 SUP_MAC=0 SUP_DEST=0 SUP_KB=0
@@ -233,6 +235,21 @@ if [[ ! -d "${DEST:h}" ]]; then
   write_status waiting "Disque de destination absent"; exit 0
 fi
 
+# macOS (TCC « Volumes amovibles ») refuse l'écriture sur un disque externe à un
+# processus root lancé par AppleScript ou par launchd : seul `sudo` depuis un terminal
+# autorisé passe. On le vérifie avant de commencer plutôt que d'échouer élément par élément.
+if [[ $MODE != dry ]]; then
+  probe="${DEST:h}/.nk-write-test-$$"
+  if ! mkdir -p "$DEST" 2>/dev/null || ! mkdir "$probe" 2>/dev/null; then
+    count_state
+    say "${R}macOS refuse l'écriture sur ${DEST:h}${N} (protection « Volumes amovibles »)."
+    say "Lance depuis un terminal autorisé : sudo zsh -f \"$0\" --dest \"$DEST\" — rien n'a été touché."
+    write_status denied "Écriture refusée par macOS sur le disque externe — lancer depuis un terminal"
+    exit 75
+  fi
+  rmdir "$probe"
+fi
+
 MOVED=0 FAILED=0 DEFERRED=0
 typeset -a items
 for dir in ${(f)"$(plugin_dirs)"}; do
@@ -310,8 +327,11 @@ for p in $items; do
       # Même contenu déjà sur le disque (passage interrompu) : on garde la copie existante.
       if [[ "$(fingerprint "$p")" == "$(fingerprint "$target")" ]]; then
         rm -rf "$p" && ln -s "$target" "$p" && { say "$prefix  ${G}✓ déjà copié, lien posé${N}"; (( MOVED++ )); }
-      else say "$prefix  ${R}✗ un autre « $name » existe déjà sur le disque${N}"; (( FAILED++ )); fi
-      continue
+        continue
+      fi
+      # Copie incomplète ou périmée : l'original du Mac fait foi, l'ancienne copie est écartée (pas supprimée).
+      stale="$target.ancienne-copie-$(date +%Y%m%d-%H%M%S)"
+      mv "$target" "$stale" && say "$prefix  ${Y}ancienne copie différente écartée → ${stale:t}${N}"
     fi
     mkdir -p "${target:h}"
     if ditto "$p" "$target" && [[ "$(fingerprint "$p")" == "$(fingerprint "$target")" ]]; then

@@ -53,6 +53,19 @@ final class NotificationRelay {
 
     func clearLatest() { latest = nil }
 
+    /// Annonce interne — fin d'une action lancée depuis l'encoche (déplacement de
+    /// plug-ins, purge…). Même affichage que les notifications relayées, dans la barre
+    /// repliée comme dans la liste. Identifiants négatifs : jamais en collision avec
+    /// ceux de la base `usernoted`.
+    func announce(_ appName: String, _ title: String, body: String = "") {
+        let note = RelayedNotification(id: -Int(Date().timeIntervalSince1970 * 1000),
+                                       bundleID: Bundle.main.bundleIdentifier ?? "NotchKiller",
+                                       appName: appName, title: title, body: body, date: Date())
+        latest = note
+        recent.insert(note, at: 0)
+        while recent.count > Self.maxKept { recent.removeLast() }
+    }
+
     /// Premier passage : on note l'identifiant courant sans rien annoncer,
     /// sinon le lancement de l'app déverserait tout l'historique.
     private func prime() {
