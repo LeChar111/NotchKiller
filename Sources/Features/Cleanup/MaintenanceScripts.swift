@@ -47,6 +47,11 @@ PLUGIN_EXT=(component vst vst3 clap aaxplugin)
 # Moteurs partagés rangés à côté des plug-ins (iZotope : iZOzone12Core.bundle dans le
 # dossier AAX). Ni intrus ni déplacés : le plug-in les cherche à cet endroit précis.
 KEEP_EXT=(bundle)
+# Les Audio Units restent sur le Mac : le registre système (AudioComponentRegistrar,
+# binaire Apple non autorisable) ne peut pas lire un composant situé sur un disque
+# externe derrière un lien — « Can't read …/Components/X.component » et l'AU disparaît
+# dès que son cache est reconstruit. VST, VST3, CLAP et AAX sont lus par le DAW lui-même.
+LOCAL_KINDS=(Components)
 # Données des éditeurs (banques de sons, modèles, ressources partagées) rangées dans
 # /Library (ex. /Library/Arturia), /Library/Application Support ou /Users/Shared. Avid est exclu : ses plug-ins AAX
 # sont déplacés un par un.
@@ -59,7 +64,7 @@ VENDOR_BASES=("/Library" "/Library/Application Support" "/Users/Shared")
 # Logiciels qui chargent les plug-ins : on ne déplace rien pendant qu'ils tournent.
 DAWS="Live|Ableton Live.*|Logic Pro|Logic Pro X|MainStage|GarageBand|Pro Tools|REAPER|Bitwig Studio|FL Studio|Studio One|Cubase.*|Nuendo.*|Reason|rekordbox|Serato DJ.*|Traktor.*|Kontakt.*|Komplete Kontrol|Maschine.*|Analog Lab.*|Serum|Vital"
 
-MODE=run DEST="" QUIET=0 DAEMON=0 HELPER_SRC=""
+MODE=run DEST="" QUIET=0 DAEMON=0 HELPER_SRC="" ONLY=""
 while (( $# )); do
   case "$1" in
     --dest) DEST="$2"; shift ;;
@@ -67,6 +72,7 @@ while (( $# )); do
     --quarantine) MODE=quarantine ;; --status) MODE=status ;; --dry-run) MODE=dry ;;
     --quiet) QUIET=1 ;; --daemon) DAEMON=1 ;;
     --helper) HELPER_SRC="$2"; shift ;;
+    --only) ONLY="$2"; shift ;;     # restreint à un type : Components, VST3, VST, CLAP, AAX, Données
     -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) print -u2 "Option inconnue : $1"; exit 64 ;;
   esac; shift
@@ -299,8 +305,12 @@ fi
 MOVED=0 FAILED=0 DEFERRED=0
 typeset -a items
 for dir in ${(f)"$(plugin_dirs)"}; do
+  kind=$(kind_of "$dir")
+  [[ -n "$ONLY" && "$kind" != "$ONLY" ]] && continue
   for p in "$dir"/*; do
     [[ "${p:t}" == .* ]] && continue
+    # Un AU encore sur le Mac y reste (voir LOCAL_KINDS) ; rapatrier reste possible.
+    [[ $MODE != restore && $MODE != quarantine && ${LOCAL_KINDS[(Ie)$kind]} -gt 0 ]] && continue
     case $MODE in
       restore)    [[ -L "$p" && "$(readlink "$p")" == "$DEST"/* ]] && is_plugin "$p" && items+=("$p") ;;
       quarantine) is_kept "$p" || is_plugin "$p" || items+=("$p") ;;
@@ -309,6 +319,7 @@ for dir in ${(f)"$(plugin_dirs)"}; do
   done
 done
 for p in ${(f)"$(vendor_dirs)"}; do
+  [[ -n "$ONLY" && "$ONLY" != Données ]] && continue
   case $MODE in
     restore)    [[ -L "$p" && "$(readlink "$p")" == "$DEST"/* ]] && items+=("$p") ;;
     quarantine) ;;
