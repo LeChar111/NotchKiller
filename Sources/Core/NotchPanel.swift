@@ -17,9 +17,13 @@ final class NotchPanel: NSPanel {
         acceptsMouseMovedEvents = true
 
         level = .mainMenu + 3
+        // Avec `.stationary` seul, le panneau restait affiché pendant Mission
+        // Control et recouvrait la rangée des bureaux. Si l'on reçoit les
+        // notifications du Dock, on l'efface nous-mêmes en fondu ; sinon
+        // `.transient` laisse macOS le masquer, sans animation.
         collectionBehavior = [
             .fullScreenAuxiliary,
-            .stationary,
+            AXIsProcessTrusted() ? .stationary : .transient,
             .canJoinAllSpaces,
             .ignoresCycle
         ]

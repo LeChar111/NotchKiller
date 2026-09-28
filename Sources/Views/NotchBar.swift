@@ -20,6 +20,7 @@ struct NotchBar: View {
     var bluetooth: BluetoothModel = .shared
     var notifications: NotificationRelay = .shared
     var calendar: CalendarModel = .shared
+    var ableton: AbletonTransport = .shared
 
     private var current: BarActivity { activities.current }
 
@@ -50,9 +51,13 @@ struct NotchBar: View {
     private var persistentList: [BarActivity] {
         var list: [BarActivity] = []
         if notchTimer.isActive { list.append(.timer) }
+        let showsDAW = settings.barShowDAW && ableton.isRunning
+        // Live en lecture passe devant ; à l'arrêt, il attend son tour.
+        if showsDAW && ableton.isPlaying { list.append(.daw) }
         if settings.barShowClaude && claudeStateMachine.hasActiveSessions { list.append(.claude) }
         if settings.barShowMusic && musicManager.isPlaying { list.append(.music) }
         if settings.barShowCalendar && calendar.imminent != nil { list.append(.calendar) }
+        if showsDAW && !ableton.isPlaying { list.append(.daw) }
         return list
     }
 
@@ -69,13 +74,15 @@ struct NotchBar: View {
     private var slotWidth: CGFloat {
         let base: CGFloat
         switch current {
-        case .volume, .brightness:   base = 64
+        case .volume, .brightness:   base = 104
         case .notification:          base = 118
         case .bluetooth:             base = 108
         case .batteryAlert:          base = 104
         case .claudeDone:            base = 104
         case .timer:                 base = 84
         case .claude, .music:        base = 92
+        case .daw:                   base = 104
+        case .dawAlert:              base = 116
         case .calendar:              base = 104
         case .idle:                  base = 58
         }
@@ -87,9 +94,11 @@ struct NotchBar: View {
         case .idle:                                          62
         case .music:                                         46
         case .claude, .calendar:                             40
+        case .daw:                                           56
         case .timer:                                         44
         case .volume, .brightness, .notification,
-             .bluetooth, .batteryAlert, .claudeDone:         0
+             .bluetooth, .batteryAlert, .claudeDone,
+             .dawAlert:                                      0
         }
     }
 
@@ -99,12 +108,50 @@ struct NotchBar: View {
     private var leading: some View {
         switch current {
         case .volume:
-            gauge(icon: volumeManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                  value: volumeManager.isMuted ? 0 : volumeManager.volume)
+            levelLabel(icon: volumeManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                       title: volumeManager.isMuted ? "Muet" : "Volume")
 
         case .brightness:
-            gauge(icon: brightnessManager.brightness < 0.5 ? "sun.min.fill" : "sun.max.fill",
-                  value: brightnessManager.brightness)
+            levelLabel(icon: brightnessManager.brightness < 0.5 ? "sun.min.fill" : "sun.max.fill",
+                       title: "Luminosité")
+
+        case .daw:
+            HStack(spacing: 5) {
+                BeatPulse(index: ableton.isPlaying ? ableton.beatIndex : nil,
+                          downbeat: ableton.isDownbeat,
+                          recording: ableton.isRecording, size: 5)
+                Text(ableton.setName ?? "Live")
+                    .font(NK.ui(9, .semibold))
+                    .foregroundStyle(NK.t2)
+                    .lineLimit(1)
+                if ableton.isSetModified {
+                    Circle().fill(NK.warn).frame(width: 4, height: 4)
+                }
+                if isPeeking {
+                    if let track = ableton.live?.track {
+                        Text(track.name)
+                            .font(NK.ui(9, .medium))
+                            .foregroundStyle(AbletonPanel.color(track.color).opacity(0.9))
+                            .lineLimit(1)
+                    } else if !ableton.isTracking {
+                        Text("non synchronisé")
+                            .font(NK.ui(9, .medium))
+                            .foregroundStyle(NK.t4)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+        case .dawAlert:
+            HStack(spacing: 5) {
+                Image(systemName: ableton.alert?.kind == .crash ? "exclamationmark.triangle.fill" : "waveform.path.ecg")
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundStyle(NK.bad)
+                Text(ableton.alert?.kind == .crash ? "Live a planté" : "Saturation")
+                    .font(NK.ui(9, .semibold))
+                    .foregroundStyle(NK.t2)
+                    .lineLimit(1)
+            }
 
         case .notification:
             HStack(spacing: 5) {
@@ -226,14 +273,40 @@ struct NotchBar: View {
     private var trailing: some View {
         switch current {
         case .volume:
-            Text("\(Int((volumeManager.isMuted ? 0 : volumeManager.volume) * 100)) %")
-                .font(NK.mono(9))
-                .foregroundStyle(Color.white.opacity(0.8))
+            levelPercent(volumeManager.isMuted ? 0 : volumeManager.volume)
 
         case .brightness:
-            Text("\(Int(brightnessManager.brightness * 100)) %")
-                .font(NK.mono(9))
-                .foregroundStyle(Color.white.opacity(0.8))
+            levelPercent(brightnessManager.brightness)
+
+        case .daw:
+            HStack(spacing: 7) {
+                if ableton.hasScript, ableton.isPlaying, let master = ableton.live?.master {
+                    HStack(alignment: .bottom, spacing: 1.5) {
+                        StereoBar(value: master.first ?? 0, height: 11, width: 2.5)
+                        StereoBar(value: master.last ?? 0, height: 11, width: 2.5)
+                    }
+                }
+                if ableton.isPlaying, let position = ableton.position {
+                    Text(position.label)
+                        .font(NK.mono(9))
+                        .foregroundStyle(ableton.isRecording ? NK.bad : Color.white.opacity(0.8))
+                        .monospacedDigit()
+                } else if let tempo = ableton.tempo {
+                    Text(String(format: "%.0f BPM", tempo))
+                        .font(NK.mono(9))
+                        .foregroundStyle(NK.t3)
+                }
+                if isPeeking {
+                    barButton(ableton.isRecording ? "record.circle.fill" : "record.circle") { ableton.record() }
+                }
+                barButton(ableton.isPlaying ? "stop.fill" : "play.fill") { ableton.toggle() }
+            }
+
+        case .dawAlert:
+            Text(ableton.alert?.kind == .crash ? "récupération au relancement" : "master à 0 dB")
+                .font(NK.ui(9, .medium))
+                .foregroundStyle(NK.t3)
+                .lineLimit(1)
 
         case .notification:
             Text(notifications.latest?.title ?? "")
@@ -337,22 +410,24 @@ struct NotchBar: View {
 
     // MARK: Fragments
 
-    private func gauge(icon: String, value: Float) -> some View {
+    private func levelLabel(icon: String, title: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 9))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
-            Capsule()
-                .fill(Color.white.opacity(0.16))
-                .frame(height: 3)
-                .overlay(alignment: .leading) {
-                    GeometryReader { proxy in
-                        Capsule()
-                            .fill(Color.white)
-                            .frame(width: proxy.size.width * CGFloat(max(0, min(1, value))))
-                    }
-                }
+                .frame(width: 16)
+            Text(title)
+                .font(NK.ui(10.5, .semibold))
+                .foregroundStyle(NK.t2)
+                .lineLimit(1)
         }
+    }
+
+    private func levelPercent(_ value: Float) -> some View {
+        Text("\(Int((value * 100).rounded())) %")
+            .font(NK.mono(11))
+            .foregroundStyle(.white)
+            .contentTransition(.numericText())
     }
 
     private func barButton(_ icon: String, action: @escaping () -> Void) -> some View {
@@ -426,4 +501,36 @@ struct NotchBar: View {
         f.dateFormat = "EEE d"
         return f
     }()
+}
+
+/// Jauge du volume ou de la luminosité, dépliée sous l'encoche sur toute la
+/// largeur du bandeau : le réglage se lit d'un coup d'œil, comme le HUD natif.
+struct LevelDrawer: View {
+    let activity: BarActivity
+    var volumeManager: VolumeManager = .shared
+    var brightnessManager: BrightnessManager = .shared
+
+    private var value: Float {
+        switch activity {
+        case .brightness: brightnessManager.brightness
+        default:          volumeManager.isMuted ? 0 : volumeManager.volume
+        }
+    }
+
+    var body: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.14))
+            .frame(height: 7)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule()
+                        .fill(Color.white)
+                        .frame(width: proxy.size.width * CGFloat(max(0, min(1, value))))
+                        .animation(.spring(response: 0.22, dampingFraction: 0.9), value: value)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            .padding(.bottom, 12)
+    }
 }

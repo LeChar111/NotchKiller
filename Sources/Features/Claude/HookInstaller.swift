@@ -26,6 +26,9 @@ struct HookInstaller {
     done
     export NOTCHKILLER_ANCESTORS="$CHAIN"
     export NOTCHKILLER_CLAUDE_PID=$PPID
+    # Onglet exact : tty de Claude (Terminal, iTerm2) ; la fenêtre d'un IDE se
+    # retrouve par CLAUDE_CODE_SSE_PORT, hérité de l'environnement de Claude.
+    export NOTCHKILLER_TTY=$(ps -o tty= -p $PPID 2>/dev/null | tr -d ' ')
 
     /usr/bin/python3 -c "
     import json, os, socket, sys
@@ -53,7 +56,8 @@ struct HookInstaller {
         'event': hook_event,
         'status': input_data.get('status', status_map.get(hook_event, 'unknown')),
         'pid': int(os.environ.get('NOTCHKILLER_CLAUDE_PID', 0) or 0),
-        'tty': None,
+        'tty': os.environ.get('NOTCHKILLER_TTY', '').strip('?') or None,
+        'ide_port': int(os.environ.get('CLAUDE_CODE_SSE_PORT', '0') or 0) or None,
         'ancestors': [int(p) for p in os.environ.get('NOTCHKILLER_ANCESTORS', '').split(',') if p.isdigit()],
         'interactive': os.environ.get('NOTCHKILLER_INTERACTIVE', 'true') == 'true',
         'permission_mode': input_data.get('permission_mode', 'default')

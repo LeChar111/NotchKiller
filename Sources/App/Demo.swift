@@ -10,6 +10,7 @@ import SwiftUI
 ///   Tools/demo.sh open dev ports     — ouvre le panneau sur l'onglet et la sous-page
 ///   Tools/demo.sh close              — referme
 ///   Tools/demo.sh bar music          — fige le bandeau fermé (claude, music, calendar)
+///   Tools/demo.sh hud volume         — affiche un éphémère 5 s (volume, brightness…)
 ///   Tools/demo.sh done               — termine une session : tiroir « Claude a fini »
 ///
 /// Les réglages (`UserDefaults`) restent ceux de l'app : `Tools/capture.sh`
@@ -52,6 +53,10 @@ enum Demo {
         case "bar":
             if let activity = words.dropFirst().first.flatMap(BarActivity.init) {
                 BarActivities.shared.pin(activity)
+            }
+        case "hud":
+            if let activity = words.dropFirst().first.flatMap(BarActivity.init) {
+                BarActivities.shared.show(activity, for: 5)
             }
         case "done":
             send(["session_id": "demo-aurora", "cwd": "\(home)/Projects/aurora-web",

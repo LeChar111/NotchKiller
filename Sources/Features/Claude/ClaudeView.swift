@@ -4,6 +4,10 @@ struct ClaudeView: View {
     var stateMachine: ClaudeStateMachine
 
     @State private var hoveredSession: String?
+    @AppStorage("claude.sortByProject") private var sortByProject = false
+    /// Ordre figé tant que la souris est sur la liste : une session qui
+    /// s'active ne doit pas venir prendre la place de celle qu'on survole.
+    @State private var frozenOrder: [String]?
 
     private var store: ClaudeSessionStore { stateMachine.sessionStore }
 
@@ -25,6 +29,10 @@ struct ClaudeView: View {
         HStack(spacing: 8) {
             SectionLabel("Sessions actives")
             Hairline()
+            HStack(spacing: 3) {
+                sortButton("Activité", active: !sortByProject) { sortByProject = false }
+                sortButton("Projet", active: sortByProject) { sortByProject = true }
+            }
             StatusPill(text: HookInstaller.isInstalled() ? "Hooks installés" : "Hooks absents",
                        tint: HookInstaller.isInstalled() ? NK.t3 : NK.warn)
         }
@@ -61,11 +69,55 @@ struct ClaudeView: View {
     private var sessionsList: some View {
         AdaptiveScrollView(maxHeight: NotchConstants.maxExpandedContentHeight - 74) {
             VStack(spacing: 14) {
-                ForEach(store.sortedSessions) { session in
+                ForEach(listed) { session in
                     sessionCard(session)
                 }
             }
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                frozenOrder = hovering ? listed.map(\.id) : nil
+            }
         }
+        .onChange(of: sortByProject) { _, _ in
+            if frozenOrder != nil { frozenOrder = ordered.map(\.id) }
+        }
+    }
+
+    private var ordered: [ClaudeSessionData] {
+        let sessions = store.sortedSessions
+        guard sortByProject else { return sessions }
+        // Tri stable : dans un même projet, l'ordre d'activité est conservé.
+        return sessions.enumerated().sorted { lhs, rhs in
+            let order = lhs.element.projectName.localizedCaseInsensitiveCompare(rhs.element.projectName)
+            return order == .orderedSame ? lhs.offset < rhs.offset : order == .orderedAscending
+        }.map(\.element)
+    }
+
+    /// Pendant le survol, les sessions gardent leur place ; une nouvelle venue
+    /// s'ajoute en bas sans rien déplacer.
+    private var listed: [ClaudeSessionData] {
+        let sessions = ordered
+        guard let frozenOrder else { return sessions }
+        let rank = Dictionary(uniqueKeysWithValues: frozenOrder.enumerated().map { ($1, $0) })
+        return sessions.enumerated().sorted { lhs, rhs in
+            (rank[lhs.element.id] ?? frozenOrder.count + lhs.offset)
+                < (rank[rhs.element.id] ?? frozenOrder.count + rhs.offset)
+        }.map(\.element)
+    }
+
+    private func sortButton(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(NK.ui(10, .semibold))
+                .foregroundStyle(active ? NK.t1 : NK.t3)
+                .padding(.horizontal, 9)
+                .frame(height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(active ? Color.white.opacity(0.09) : .clear)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     /// Le filet vertical porte l'état : la couleur se lit en périphérie,
@@ -159,7 +211,7 @@ struct ClaudeView: View {
     /// Ramène à la fenêtre où la conversation se déroule.
     private func terminalButton(_ session: ClaudeSessionData) -> some View {
         Button {
-            TerminalFocus.focus(ancestors: session.ancestorPIDs)
+            TerminalFocus.focus(session.terminalTarget)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.up.forward.app.fill")

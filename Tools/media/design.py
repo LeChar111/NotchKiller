@@ -77,7 +77,7 @@ def framed(name, width=1800, pad_top=0, pad_bottom=70):
 
 pages = ['home-summary', 'home-agenda', 'dev-projects', 'dev-ports', 'dev-docker', 'dev-terminal',
          'claude-sessions', 'claude-history', 'claude-mcp', 'media', 'system-stats', 'system-processes',
-         'system-memory', 'system-cleanup', 'system-battery', 'system-controls', 'workshop-shelf',
+         'system-memory', 'system-cleanup', 'system-battery', 'workshop-shelf',
          'workshop-clipboard', 'workshop-notes', 'workshop-calculator', 'workshop-actions', 'workshop-settings']
 for p in pages:
     framed(p)

@@ -20,6 +20,8 @@ enum NotchConstants {
     static let windowHeight: CGFloat = 560
     /// De combien le bandeau fermé descend sous l'encoche au survol.
     static let hoverLift: CGFloat = 8
+    /// Hauteur de la ligne des sous-pages, sous l'encoche du panneau ouvert.
+    static let navRailHeight: CGFloat = 28
 }
 
 @MainActor
@@ -54,6 +56,19 @@ final class NotchPanelManager {
     private var scrollX: CGFloat = 0
     private var scrollY: CGFloat = 0
     private var lastScrollAt = Date.distantPast
+    /// Un geste ne déclenche qu'une action : l'inertie du trackpad prolonge
+    /// le défilement bien après le lever des doigts.
+    private var gestureHandled = false
+
+    /// Balayage horizontal sur le panneau ouvert : la vue avance d'une page
+    /// dans le sens indiqué à chaque incrément du compteur.
+    private(set) var pageSwipe = (count: 0, delta: 0)
+    /// Étirement élastique de l'encoche pendant un geste vertical, de -1 à 1 :
+    /// positif vers le bas (ouvrir), négatif vers le haut (refermer, chasser).
+    private(set) var stretch: CGFloat = 0
+    /// Glissement horizontal du contenu pendant un balayage, de -1 à 1.
+    private(set) var nudge: CGFloat = 0
+    private var settleTask: Task<Void, Never>?
 
     /// Le survol ne fait qu'enrichir le bandeau : c'est le clic qui ouvre.
     private(set) var isHovering = false
@@ -118,50 +133,133 @@ final class NotchPanelManager {
     }
 
     /// Gestes sur la zone de l'encoche : balayage horizontal pour faire défiler
-    /// les activités du bandeau, vertical pour ouvrir ou refermer.
+    /// les activités du bandeau (ou les pages du panneau ouvert), vertical pour
+    /// ouvrir ou refermer — ou chasser le tiroir de fin de discussion.
     func handleScroll(_ event: NSEvent) {
         let location = NSEvent.mouseLocation
-        let zone = isExpanded ? panelRect : notchRect.insetBy(dx: -6, dy: -6)
+        let zone = isExpanded ? panelRect : collapsedRect.insetBy(dx: -6, dy: -6)
         guard zone.contains(location) else {
-            scrollX = 0
-            scrollY = 0
+            resetScroll()
             return
         }
 
         // Un trackpad envoie des dizaines d'événements de 1 à 3 px : tester
         // un événement isolé contre un seuil ne déclenche jamais rien. On
-        // cumule, et un silence de 250 ms marque la fin du geste.
-        if Date().timeIntervalSince(lastScrollAt) > 0.25 {
-            scrollX = 0
-            scrollY = 0
+        // cumule, et un nouveau contact ou un silence de 250 ms marque la fin
+        // du geste.
+        if event.phase == .began || Date().timeIntervalSince(lastScrollAt) > 0.25 {
+            resetScroll()
         }
         lastScrollAt = Date()
+        scheduleSettle()
+
+        // Doigts levés : l'encoche relâche l'étirement. L'inertie qui suit
+        // peut encore faire aboutir un geste lancé, mais n'étire plus rien.
+        if event.phase == .ended || event.phase == .cancelled {
+            settle()
+            return
+        }
+        let fingersDown = event.momentumPhase.isEmpty
+        guard !gestureHandled else { return }
         scrollX += event.scrollingDeltaX
         scrollY += event.scrollingDeltaY
 
         guard Date().timeIntervalSince(lastGesture) > 0.45 else { return }
 
         // Une molette envoie des crans de ±1, un trackpad des pixels.
-        let threshold: CGFloat = event.hasPreciseScrollingDeltas ? 24 : 2
+        let threshold: CGFloat = event.hasPreciseScrollingDeltas ? 34 : 2
 
-        if abs(scrollX) > abs(scrollY), abs(scrollX) > threshold {
-            guard !isExpanded else { return }
-            lastGesture = Date()
+        // Panneau ouvert, le défilement vertical appartient aux listes :
+        // seul le bandeau du haut (encoche + sous-pages) replie le panneau.
+        let navBand = notchSize.height + NotchConstants.navRailHeight
+        let verticalAllowed = !isExpanded || location.y >= panelRect.maxY - navBand
+
+        if abs(scrollX) > abs(scrollY) {
+            stretch = 0
+            let progress = max(-1, min(1, scrollX / threshold))
+            if fingersDown { follow(nudge: progress) }
+            guard abs(scrollX) > threshold else { return }
             let forward = scrollX < 0
-            scrollX = 0
-            scrollY = 0
-            BarActivities.shared.advance(forward ? 1 : -1)
-        } else if abs(scrollY) > threshold {
-            lastGesture = Date()
+            markGestureHandled()
+            Haptics.play(.tick)
+            if isExpanded {
+                pageSwipe = (pageSwipe.count + 1, forward ? 1 : -1)
+            } else {
+                BarActivities.shared.advance(forward ? 1 : -1)
+            }
+        } else if verticalAllowed {
+            nudge = 0
             let down = scrollY > 0
-            scrollX = 0
-            scrollY = 0
-            if down && !isExpanded {
+            let action: VerticalAction? = switch (down, isExpanded) {
+            case (true, false):                  .expand
+            case (false, false) where showsDrawer: .dismissDrawer
+            case (false, true) where !isPinned:  .collapse
+            default:                             nil
+            }
+            // Épinglé, le panneau résiste : il cède à peine et ne se ferme pas.
+            let reach: CGFloat = action == nil ? 0.25 : 1
+            if fingersDown { follow(stretch: min(reach, abs(scrollY) / threshold) * (down ? 1 : -1)) }
+            guard abs(scrollY) > threshold else { return }
+            markGestureHandled()
+            switch action {
+            case .expand:
+                Haptics.play(.snap)
                 expand()
-            } else if !down && isExpanded && !isPinned {
+            case .collapse:
+                Haptics.play(.snap)
                 collapse()
+            case .dismissDrawer:
+                Haptics.play(.thud)
+                BarActivities.shared.dismissTransient()
+                ClaudeSessionStore.shared.clearFinishedNotice()
+            case nil:
+                Haptics.play(.thud)
             }
         }
+    }
+
+    private enum VerticalAction { case expand, collapse, dismissDrawer }
+
+    /// Étirement suivi au doigt ; un cran haptique marque la mi-course pour
+    /// annoncer que le geste va aboutir.
+    private func follow(stretch value: CGFloat) {
+        if abs(value) >= 0.5, abs(stretch) < 0.5 { Haptics.play(.tick) }
+        stretch = value
+    }
+
+    private func follow(nudge value: CGFloat) {
+        if abs(value) >= 0.5, abs(nudge) < 0.5 { Haptics.play(.tick) }
+        nudge = value
+    }
+
+    private func settle() {
+        if stretch != 0 { stretch = 0 }
+        if nudge != 0 { nudge = 0 }
+    }
+
+    /// Une molette n'envoie pas de fin de geste : le silence en tient lieu.
+    private func scheduleSettle() {
+        settleTask?.cancel()
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(260))
+            guard !Task.isCancelled else { return }
+            self?.settle()
+        }
+    }
+
+    private func resetScroll() {
+        scrollX = 0
+        scrollY = 0
+        gestureHandled = false
+        settle()
+    }
+
+    private func markGestureHandled() {
+        lastGesture = Date()
+        scrollX = 0
+        scrollY = 0
+        gestureHandled = true
+        settle()
     }
 
     func handleMouseMoved() {
@@ -195,6 +293,7 @@ final class NotchPanelManager {
     private func setHovering(_ value: Bool) {
         guard isHovering != value else { return }
         isHovering = value
+        if value { Haptics.play(.tick) }
     }
 
     func handleMouseDown() {
@@ -235,5 +334,6 @@ final class NotchPanelManager {
 
     func togglePin() {
         isPinned.toggle()
+        Haptics.play(.snap)
     }
 }

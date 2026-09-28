@@ -20,6 +20,9 @@ struct HookEvent: Decodable, Sendable {
     let ancestors: [Int]?
     /// Transcript JSONL de la session, d'où l'on tire le titre généré par Claude Code.
     let transcriptPath: String?
+    /// Port du serveur IDE de Claude Code (`~/.claude/ide/<port>.lock`) quand
+    /// la session tourne dans le terminal intégré de Cursor ou VS Code.
+    let idePort: Int?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -31,6 +34,7 @@ struct HookEvent: Decodable, Sendable {
         case interactive, summary, ancestors
         case summaryDetail = "summary_detail"
         case transcriptPath = "transcript_path"
+        case idePort = "ide_port"
     }
 }
 

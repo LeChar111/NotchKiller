@@ -14,7 +14,7 @@ struct ClaudeDoneDrawer: View {
         let description = session?.currentDescription
 
         Button {
-            if let session { TerminalFocus.focus(ancestors: session.ancestorPIDs) }
+            if let session { TerminalFocus.focus(session.terminalTarget) }
             activities.dismissTransient()
             store.clearFinishedNotice()
         } label: {

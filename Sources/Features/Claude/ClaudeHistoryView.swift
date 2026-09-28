@@ -219,7 +219,7 @@ struct ClaudeHistoryView: View {
         HStack(spacing: 4) {
             if status == .live, let session = store.sessions[entry.id] {
                 pill("Revenir", icon: "arrow.up.forward.app.fill") {
-                    TerminalFocus.focus(ancestors: session.ancestorPIDs)
+                    TerminalFocus.focus(session.terminalTarget)
                 }
             } else {
                 pill("Reprendre", icon: "arrow.clockwise") {

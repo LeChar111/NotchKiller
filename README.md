@@ -103,8 +103,8 @@ build, batterie et appareils Bluetooth, volume et luminosité.
 | <img src="docs/assets/system-stats.png" alt="Système — statistiques"> | <img src="docs/assets/system-processes.png" alt="Système — processus"> |
 | **Mémoire** | **Nettoyage** |
 | <img src="docs/assets/system-memory.png" alt="Système — mémoire"> | <img src="docs/assets/system-cleanup.png" alt="Système — nettoyage"> |
-| **Batterie** | **Son et écran** |
-| <img src="docs/assets/system-battery.png" alt="Système — batterie"> | <img src="docs/assets/system-controls.png" alt="Système — son et écran"> |
+| **Batterie** | |
+| <img src="docs/assets/system-battery.png" alt="Système — batterie"> | |
 
 ### Atelier
 

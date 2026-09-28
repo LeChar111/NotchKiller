@@ -51,7 +51,7 @@ final class ClaudeSessionStore {
     @discardableResult
     func focusTerminal(for sessionId: String) -> Bool {
         guard let session = sessions[sessionId] else { return false }
-        return TerminalFocus.focus(ancestors: session.ancestorPIDs)
+        return TerminalFocus.focus(session.terminalTarget)
     }
 
     func process(_ event: HookEvent) -> ClaudeSessionData {
@@ -70,6 +70,7 @@ final class ClaudeSessionStore {
 
         let session = getOrCreateSession(sessionId: event.sessionId, cwd: event.cwd, isInteractive: isInteractive)
         session.recordAncestors(event.ancestors)
+        session.recordTerminal(tty: event.tty, idePort: event.idePort)
         // Fin de tour ou nouveau message : le titre a pu changer, on relit sans attendre.
         session.refreshAutoTitle(
             transcriptPath: event.transcriptPath,

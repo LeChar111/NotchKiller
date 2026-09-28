@@ -4,14 +4,14 @@ import Foundation
 /// vraies en même temps : les éphémères passent devant, les permanentes
 /// défilent l'une après l'autre.
 enum BarActivity: String, Identifiable, Equatable, CaseIterable {
-    case volume, brightness, notification, bluetooth, batteryAlert, claudeDone
-    case timer, claude, music, calendar, idle
+    case volume, brightness, notification, bluetooth, batteryAlert, claudeDone, dawAlert
+    case timer, daw, claude, music, calendar, idle
 
     var id: String { rawValue }
 
     var isTransient: Bool {
         switch self {
-        case .volume, .brightness, .notification, .bluetooth, .batteryAlert, .claudeDone: true
+        case .volume, .brightness, .notification, .bluetooth, .batteryAlert, .claudeDone, .dawAlert: true
         default: false
         }
     }

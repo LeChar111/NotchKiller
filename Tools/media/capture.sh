@@ -58,7 +58,7 @@ echo "── Pages"
 launch
 PAGES=(home:summary home:agenda dev:projects dev:ports dev:docker dev:terminal
        claude:sessions claude:history claude:mcp media: system:stats system:processes
-       system:memory system:cleanup system:battery system:controls workshop:shelf
+       system:memory system:cleanup system:battery workshop:shelf
        workshop:clipboard workshop:notes workshop:calculator workshop:actions workshop:settings)
 for page in "${PAGES[@]}"; do
   tab="${page%%:*}"; sub="${page#*:}"

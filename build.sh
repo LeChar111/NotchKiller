@@ -64,6 +64,8 @@ cat > "$PLIST_PATH" <<PLIST
     <string>NotchKiller affiche votre prochain rendez-vous dans l'encoche.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>NotchKiller pilote Musique et Spotify pour la lecture, et Ghostty pour ouvrir une nouvelle fenêtre.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>NotchKiller liste dans l'onglet Média les fichiers reçus par AirDrop, que macOS dépose dans Téléchargements.</string>
     <key>NSHumanReadableCopyright</key>
     <string>NotchKiller $VERSION</string>
     <key>NSPrincipalClass</key>
@@ -96,6 +98,7 @@ compile() {
     -framework SwiftUI \
     -framework IOKit \
     -framework CoreAudio \
+    -framework CoreMIDI \
     "${SWIFT_FILES[@]}" \
     -o "$output"
 }
@@ -112,8 +115,6 @@ else
   compile arm64-apple-macos15.0 "$BIN_PATH"
 fi
 
-# Signature. Une signature ad hoc change à chaque compilation, donc macOS
-# redemande les autorisations à chaque fois : renseignez NK_SIGN_IDENTITY avec
 # ── Assistant root du déport des plug-ins audio ──────────────────────────────
 # Exécutable séparé : c'est lui qui reçoit l'Accès complet au disque (voir
 # Tools/audio-helper/main.swift). Signé avant l'app, dont la signature le scelle.
@@ -135,6 +136,17 @@ if [[ -f "$HELPER_SRC" ]]; then
     || true
 fi
 
+# ── Script d'extension Ableton Live ──────────────────────────────────────────
+# Copié tel quel ; NotchKiller l'installe dans la User Library à la demande.
+ABLETON_SRC="$ROOT_DIR/Tools/ableton/NotchKiller"
+if [[ -d "$ABLETON_SRC" ]]; then
+  rm -rf "$RESOURCES_DIR/AbletonRemoteScript"
+  mkdir -p "$RESOURCES_DIR/AbletonRemoteScript"
+  rsync -a --exclude '__pycache__' "$ABLETON_SRC" "$RESOURCES_DIR/AbletonRemoteScript/"
+fi
+
+# Signature. Une signature ad hoc change à chaque compilation, donc macOS
+# redemande les autorisations à chaque fois : renseignez NK_SIGN_IDENTITY avec
 # une identité stable (voir Tools/setup-signing.sh) pour qu'elles tiennent.
 SIGN_IDENTITY="${NK_SIGN_IDENTITY:--}"
 codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$APP_DIR" >/dev/null 2>&1 \

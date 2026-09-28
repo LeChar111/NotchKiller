@@ -4,6 +4,7 @@ import SwiftUI
 struct MediaPlayerView: View {
     var musicManager: MusicManager
     var library: MediaLibrary = .shared
+    var airDrop: AirDropInbox = .shared
 
     @State private var hovered: String?
     @State private var renaming: String?
@@ -18,10 +19,15 @@ struct MediaPlayerView: View {
             Hairline()
                 .padding(.top, 12)
 
-            if musicManager.isIdle {
+            if library.isAbleton {
+                // Le set complet dépasse la hauteur du panneau : il défile.
+                AdaptiveScrollView(maxHeight: NotchConstants.maxExpandedContentHeight - 50) {
+                    AbletonPanel()
+                        .padding(.top, NK.sectionGap)
+                }
+            } else if musicManager.isIdle {
                 playlistSection(columns: 2)
                     .padding(.top, NK.sectionGap)
-                    .padding(.bottom, 12)
             } else {
                 HStack(alignment: .top, spacing: 22) {
                     playerView
@@ -30,10 +36,16 @@ struct MediaPlayerView: View {
                         .frame(width: 320, alignment: .topLeading)
                 }
                 .padding(.top, NK.sectionGap)
-                .padding(.bottom, 12)
             }
+
+            airDropSection
+                .padding(.top, NK.sectionGap)
+                .padding(.bottom, 12)
         }
-        .onAppear { library.refresh() }
+        .onAppear {
+            library.refresh()
+            airDrop.activate()
+        }
     }
 
     // MARK: Source
@@ -292,6 +304,136 @@ struct MediaPlayerView: View {
                 .foregroundStyle(NK.t3)
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    // MARK: AirDrop
+
+    private var airDropSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                SectionLabel(airDrop.files.isEmpty ? "AirDrop reçus" : "AirDrop reçus · \(airDrop.files.count)")
+                receptionBadge
+                Spacer(minLength: 0)
+                pillButton("folder", "Téléchargements", help: "Ouvrir le dossier Téléchargements") {
+                    airDrop.openDownloads()
+                }
+                pillButton("dot.radiowaves.left.and.right", "AirDrop", help: "Ouvrir la fenêtre AirDrop du Finder — rend le Mac visible") {
+                    airDrop.openAirDropWindow()
+                }
+            }
+
+            if airDrop.files.isEmpty {
+                Text(airDrop.hasScanned
+                     ? "Aucun fichier reçu par AirDrop dans Téléchargements."
+                     : "Recherche des fichiers reçus…")
+                    .font(NK.ui(11, .medium))
+                    .foregroundStyle(NK.t3)
+                    .padding(.vertical, 6)
+            } else {
+                let items = Array(airDrop.files.prefix(4))
+                HStack(alignment: .top, spacing: 18) {
+                    airDropColumn(Array(items.prefix((items.count + 1) / 2)))
+                    airDropColumn(Array(items.dropFirst((items.count + 1) / 2)))
+                }
+            }
+        }
+    }
+
+    /// Le mode de réception explique la plupart des AirDrop qui n'arrivent pas.
+    private var receptionBadge: some View {
+        let warns = airDrop.receptionMode == .off
+        return Text(airDrop.receptionMode.label)
+            .font(NK.ui(9, .semibold))
+            .foregroundStyle(warns ? Color.orange : NK.t4)
+            .padding(.horizontal, 7)
+            .frame(height: 17)
+            .background(Capsule().fill(warns ? Color.orange.opacity(0.14) : Color.white.opacity(0.05)))
+            .help("Mode de réception AirDrop de ce Mac")
+    }
+
+    private func airDropColumn(_ items: [AirDropFile]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(items) { file in
+                airDropRow(file)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func airDropRow(_ file: AirDropFile) -> some View {
+        let isHovered = hovered == file.id
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Button { airDrop.open(file) } label: {
+                    HStack(spacing: 10) {
+                        Image(nsImage: airDrop.icon(for: file))
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 30, height: 30)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(file.name)
+                                .font(NK.ui(11.5, .semibold))
+                                .foregroundStyle(NK.t1)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(airDropSubtitle(file))
+                                .font(NK.ui(9.5, .medium))
+                                .foregroundStyle(NK.t4)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if isHovered {
+                    rowButton("eye", help: "Aperçu") { airDrop.quickLook(file) }
+                    rowButton("tray.and.arrow.down", help: "Ajouter à l'étagère") { airDrop.addToShelf(file) }
+                    rowButton("folder", help: "Afficher dans le Finder") { airDrop.reveal(file) }
+                }
+            }
+            .padding(.vertical, 7)
+            .onHover { hovered = $0 ? file.id : (hovered == file.id ? nil : hovered) }
+
+            Hairline()
+        }
+        .animation(.smooth(duration: 0.15), value: isHovered)
+    }
+
+    private func airDropSubtitle(_ file: AirDropFile) -> String {
+        let when = Self.relative.localizedString(for: file.receivedAt, relativeTo: Date())
+        let size = ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)
+        return [file.sender, when, size].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.unitsStyle = .short
+        return formatter
+    }()
+
+    private func pillButton(_ icon: String, _ title: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(title)
+                    .font(NK.ui(9.5, .semibold))
+            }
+            .foregroundStyle(NK.t2)
+            .padding(.horizontal, 9)
+            .frame(height: 20)
+            .background(Capsule().fill(Color.white.opacity(0.06)))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .help(help)

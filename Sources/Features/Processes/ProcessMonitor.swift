@@ -1,15 +1,23 @@
 import AppKit
 
-/// Un groupe = une application et tous ses processus auxiliaires.
-/// Un navigateur ou un éditeur Electron en lance une dizaine ; les lister
-/// séparément ne dit rien à personne.
+/// Un groupe = une application et tout ce que macOS lui impute : ses auxiliaires,
+/// mais aussi ce qu'on a lancé depuis elle (un `node` dans le terminal de Cursor,
+/// une session `claude` dans Ghostty). C'est le découpage de « Forcer à quitter ».
 struct ProcessGroup: Identifiable, Equatable {
     let id: String
     let name: String
+    /// Le processus responsable : l'app elle-même quand il y en a une.
+    let ownerPID: Int32
     let pids: [Int32]
     let cpu: Double
     let memoryBytes: Double
     let bundlePath: String?
+    /// Suspendus par le noyau faute d'espace de pagination.
+    var pausedPIDs: [Int32] = []
+    /// Renseigné pour une app du Dock : de quoi la rouvrir après l'avoir quittée.
+    var relaunchURL: URL?
+
+    var isPaused: Bool { !pausedPIDs.isEmpty }
 
     var memoryLabel: String {
         ProcessMonitor.formatBytes(memoryBytes)
@@ -76,7 +84,14 @@ final class ProcessMonitor {
         Task.detached(priority: .utility) {
             let parsed = Self.snapshot(uid: uid, ownPID: ownPID)
             await MainActor.run {
-                self.groups = Self.sorted(parsed, byCPU: self.sortByCPU)
+                let located = parsed.map { group in
+                    var group = group
+                    if let app = NSRunningApplication(processIdentifier: group.ownerPID), app.activationPolicy == .regular {
+                        group.relaunchURL = app.bundleURL
+                    }
+                    return group
+                }
+                self.groups = Self.sorted(located, byCPU: self.sortByCPU)
                 self.totalUserMemory = parsed.reduce(0) { $0 + $1.memoryBytes }
                 self.updateReclaimCandidates()
                 self.isRefreshing = false
@@ -88,49 +103,51 @@ final class ProcessMonitor {
         items.sorted { byCPU ? $0.cpu > $1.cpu : $0.memoryBytes > $1.memoryBytes }
     }
 
-    /// `ps` plutôt que libproc : pas d'entitlement, pas de sondage privilégié,
-    /// et la moyenne CPU glissante de `ps` est celle d'Activity Monitor.
+    /// `ps` pour la liste et la moyenne CPU glissante (celle d'Activity Monitor),
+    /// libproc pour l'empreinte : le RSS de `ps` ignore le swap et la compression,
+    /// si bien qu'une app de 16 Go dont l'essentiel est swappé y pèse 1 Go.
     private nonisolated static func snapshot(uid: uid_t, ownPID: Int32) -> [ProcessGroup] {
-        guard let output = run("/bin/ps", ["-axo", "pid=,uid=,pcpu=,rss=,comm="]) else { return [] }
+        guard let output = run("/bin/ps", ["-axo", "pid=,uid=,pcpu="]) else { return [] }
 
-        var accumulator: [String: (name: String, pids: [Int32], cpu: Double, memory: Double, bundle: String?)] = [:]
+        struct Tally { var pids: [Int32] = []; var cpu = 0.0; var memory = 0.0; var paused: [Int32] = [] }
+        var byOwner: [Int32: Tally] = [:]
 
         for line in output.split(separator: "\n") {
-            guard let entry = parse(line: String(line)) else { continue }
-            guard entry.uid == uid, entry.pid != ownPID else { continue }
-            guard !isSystemPath(entry.path) else { continue }
+            let columns = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard columns.count == 3, let pid = Int32(columns[0]), let owner = UInt32(columns[1]),
+                  let cpu = Double(columns[2]) else { continue }
+            guard owner == uid, pid != ownPID else { continue }
+            let responsible = ProcessControl.responsiblePID(pid)
+            guard responsible != ownPID else { continue }
 
-            let (key, display, bundle) = identify(path: entry.path)
+            var tally = byOwner[responsible] ?? Tally()
+            tally.pids.append(pid)
+            tally.cpu += cpu
+            tally.memory += ProcessControl.footprint(pid) ?? 0
+            if ProcessControl.isStarvationPaused(pid) { tally.paused.append(pid) }
+            byOwner[responsible] = tally
+        }
+
+        // Deux instances d'un même exécutable (des `node` sans app) forment une ligne.
+        var groups: [String: ProcessGroup] = [:]
+        for (owner, tally) in byOwner {
+            guard let path = ProcessControl.executablePath(owner), !isSystemPath(path) else { continue }
+            let (key, display, bundle) = identify(path: path)
             guard !protectedNames.contains(display) else { continue }
 
-            var current = accumulator[key] ?? (display, [], 0, 0, bundle)
-            current.pids.append(entry.pid)
-            current.cpu += entry.cpu
-            current.memory += entry.rssKB * 1024
-            accumulator[key] = current
+            let previous = groups[key]
+            let isLarger = tally.memory > (previous?.memoryBytes ?? 0)
+            groups[key] = ProcessGroup(
+                id: key, name: display,
+                ownerPID: previous.map { isLarger ? owner : $0.ownerPID } ?? owner,
+                pids: (previous?.pids ?? []) + tally.pids,
+                cpu: (previous?.cpu ?? 0) + tally.cpu,
+                memoryBytes: (previous?.memoryBytes ?? 0) + tally.memory,
+                bundlePath: bundle,
+                pausedPIDs: (previous?.pausedPIDs ?? []) + tally.paused
+            )
         }
-
-        return accumulator.map { key, value in
-            ProcessGroup(id: key, name: value.name, pids: value.pids,
-                         cpu: value.cpu, memoryBytes: value.memory, bundlePath: value.bundle)
-        }
-    }
-
-    private nonisolated static func parse(line: String) -> (pid: Int32, uid: uid_t, cpu: Double, rssKB: Double, path: String)? {
-        var scanner = line.drop { $0 == " " }
-        func token() -> String? {
-            guard let end = scanner.firstIndex(of: " ") else { return nil }
-            let value = String(scanner[scanner.startIndex..<end])
-            scanner = scanner[end...].drop { $0 == " " }
-            return value.isEmpty ? nil : value
-        }
-        guard let pid = token().flatMap(Int32.init),
-              let uid = token().flatMap(UInt32.init),
-              let cpu = token().flatMap(Double.init),
-              let rss = token().flatMap(Double.init) else { return nil }
-        let path = String(scanner)
-        guard !path.isEmpty else { return nil }
-        return (pid, uid_t(uid), cpu, rss, path)
+        return Array(groups.values)
     }
 
     /// Tout ce qui appartient au système reste hors de la liste : on ne propose
@@ -174,19 +191,73 @@ final class ProcessMonitor {
     // MARK: Fermeture
 
     /// Fermeture douce : l'app reprend la main et peut proposer d'enregistrer.
+    /// Seule l'app est sollicitée ; ses auxiliaires et ses terminaux suivent.
     @discardableResult
     func terminate(_ group: ProcessGroup) -> Bool {
         var closed = false
-        for pid in group.pids {
-            if let app = NSRunningApplication(processIdentifier: pid) {
-                closed = app.terminate() || closed
-            } else {
-                closed = kill(pid, SIGTERM) == 0 || closed
-            }
+        if let app = NSRunningApplication(processIdentifier: group.ownerPID), app.activationPolicy == .regular {
+            closed = app.terminate()
+        } else {
+            for pid in group.pids { closed = kill(pid, SIGTERM) == 0 || closed }
         }
-        lastAction = closed ? "\(group.name) — fermeture demandée" : "\(group.name) — refus"
+        lastAction = group.isPaused
+            ? "\(group.name) est en pause : reprendre ou forcer"
+            : closed ? "\(group.name) — fermeture demandée" : "\(group.name) — refus"
         refreshSoon()
         return closed
+    }
+
+    /// SIGKILL sur tout le groupe, comme « Forcer à quitter » : fonctionne aussi
+    /// sur une app en pause, qui ne traite plus aucun événement.
+    func forceQuit(_ group: ProcessGroup) {
+        for pid in group.pids { kill(pid, SIGKILL) }
+        lastAction = "\(group.name) — arrêt forcé · \(Self.formatBytes(group.memoryBytes))"
+        refreshSoon()
+    }
+
+    /// Quitte puis rouvre l'app : elle restaure ses fenêtres avec une mémoire neuve.
+    /// Si elle ne s'est pas fermée au bout de 8 s (dialogue, pause), on force.
+    func relaunch(_ group: ProcessGroup) {
+        guard let url = group.relaunchURL else { return }
+        let owner = group.ownerPID, pids = group.pids, name = group.name
+        lastAction = "\(name) — redémarrage…"
+        if !group.isPaused { NSRunningApplication(processIdentifier: owner)?.terminate() }
+
+        Task {
+            if !group.isPaused { await Self.waitForExit(owner, seconds: 8) }
+            if kill(owner, 0) == 0 {
+                for pid in pids { kill(pid, SIGKILL) }
+                await Self.waitForExit(owner, seconds: 3)
+            }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = false
+            do {
+                _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+                lastAction = "\(name) relancée"
+            } catch {
+                lastAction = "\(name) — réouverture impossible"
+            }
+            refreshSoon()
+        }
+    }
+
+    private static func waitForExit(_ pid: Int32, seconds: Double) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while kill(pid, 0) == 0, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
+    /// Lève la pause imposée par le noyau, sur l'app et chacun de ses auxiliaires.
+    func resume(_ group: ProcessGroup) {
+        let pids = group.pausedPIDs, name = group.name
+        guard !pids.isEmpty else { return }
+        lastAction = "\(name) — reprise…"
+        Task {
+            let resumed = await ProcessControl.resumeWithAdministratorPrompt(pids)
+            lastAction = resumed ? "\(name) reprise" : "\(name) — reprise annulée"
+            refreshSoon()
+        }
     }
 
     // MARK: Libération de mémoire
@@ -246,13 +317,17 @@ extension ProcessMonitor {
     func loadDemo() {
         let gb = 1_073_741_824.0
         let list = [
-            ProcessGroup(id: "safari", name: "Safari", pids: [611, 1204, 1377], cpu: 6.2, memoryBytes: 2.4 * gb, bundlePath: "/Applications/Safari.app"),
-            ProcessGroup(id: "xcode", name: "Xcode", pids: [902], cpu: 12.8, memoryBytes: 1.9 * gb, bundlePath: "/Applications/Xcode.app"),
-            ProcessGroup(id: "node", name: "node", pids: [48211, 48302], cpu: 9.4, memoryBytes: 0.8 * gb, bundlePath: nil),
-            ProcessGroup(id: "music", name: "Musique", pids: [733], cpu: 1.1, memoryBytes: 0.35 * gb, bundlePath: "/System/Applications/Music.app"),
-            ProcessGroup(id: "mail", name: "Mail", pids: [640], cpu: 0.4, memoryBytes: 0.3 * gb, bundlePath: "/System/Applications/Mail.app"),
-            ProcessGroup(id: "postgres", name: "postgres", pids: [812], cpu: 0.9, memoryBytes: 0.21 * gb, bundlePath: nil),
-        ]
+            ProcessGroup(id: "safari", name: "Safari", ownerPID: 611, pids: [611, 1204, 1377], cpu: 6.2, memoryBytes: 2.4 * gb, bundlePath: "/Applications/Safari.app"),
+            ProcessGroup(id: "xcode", name: "Xcode", ownerPID: 902, pids: [902], cpu: 12.8, memoryBytes: 1.9 * gb, bundlePath: "/Applications/Xcode.app", pausedPIDs: [902]),
+            ProcessGroup(id: "node", name: "node", ownerPID: 48211, pids: [48211, 48302], cpu: 9.4, memoryBytes: 0.8 * gb, bundlePath: nil),
+            ProcessGroup(id: "music", name: "Musique", ownerPID: 733, pids: [733], cpu: 1.1, memoryBytes: 0.35 * gb, bundlePath: "/System/Applications/Music.app"),
+            ProcessGroup(id: "mail", name: "Mail", ownerPID: 640, pids: [640], cpu: 0.4, memoryBytes: 0.3 * gb, bundlePath: "/System/Applications/Mail.app"),
+            ProcessGroup(id: "postgres", name: "postgres", ownerPID: 812, pids: [812], cpu: 0.9, memoryBytes: 0.21 * gb, bundlePath: nil),
+        ].map { group in
+            var group = group
+            group.relaunchURL = group.bundlePath.map { URL(fileURLWithPath: $0) }
+            return group
+        }
         groups = Self.sorted(list, byCPU: sortByCPU)
         totalUserMemory = list.reduce(0) { $0 + $1.memoryBytes }
         reclaimCandidates = Array(list.suffix(2))

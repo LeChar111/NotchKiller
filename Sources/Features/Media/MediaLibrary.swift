@@ -35,6 +35,7 @@ final class MediaLibrary {
         ("com.spotify.client", "Spotify"),
         ("com.apple.podcasts", "Podcasts"),
         ("com.apple.TV", "Apple TV"),
+        (AbletonTransport.bundleID, "Ableton Live"),
     ]
 
     private static let pinnedKey = "media.pinned"
@@ -50,6 +51,7 @@ final class MediaLibrary {
     }
 
     var isAppleMusic: Bool { defaultSource?.bundleID == "com.apple.Music" }
+    var isAbleton: Bool { defaultSource?.bundleID == AbletonTransport.bundleID }
 
     func refresh() {
         if Demo.isActive { loadDemo(); return }

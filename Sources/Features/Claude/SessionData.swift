@@ -68,6 +68,10 @@ final class ClaudeSessionData: Identifiable {
     private(set) var ancestorPIDs: [Int] = []
     /// Nom de l'app qui héberge la session — résolu une fois, pas à chaque rendu.
     private(set) var terminalName: String?
+    /// tty de Claude (`ttys040`) et port IDE : désignent l'onglet ou la fenêtre
+    /// précise quand l'app hôte en a plusieurs.
+    private(set) var tty: String?
+    private(set) var idePort: Int?
     private(set) var processingStartedAt: Date?
     private(set) var finishedAt: Date?
 
@@ -135,6 +139,19 @@ final class ClaudeSessionData: Identifiable {
         guard let pids, !pids.isEmpty, pids != ancestorPIDs else { return }
         ancestorPIDs = pids
         terminalName = TerminalFocus.hostName(ancestors: pids)
+    }
+
+    func recordTerminal(tty: String?, idePort: Int?) {
+        if let tty, !tty.isEmpty { self.tty = tty }
+        if let idePort { self.idePort = idePort }
+    }
+
+    /// Ce qu'il faut pour retrouver la fenêtre et l'onglet de la session.
+    var terminalTarget: TerminalFocus.Target {
+        TerminalFocus.Target(
+            ancestors: ancestorPIDs, cwd: cwd, tty: tty,
+            idePort: idePort, title: autoTitle
+        )
     }
 
     /// Fin d'un tour : `Stop` côté hook. Renvoie la durée du tour écoulé.

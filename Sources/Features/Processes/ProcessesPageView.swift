@@ -1,9 +1,32 @@
 import SwiftUI
 
+/// Actions d'une ligne, toutes confirmées par un second clic.
+private enum RowAction: Equatable {
+    case resume, relaunch, forceQuit, close
+
+    var title: String {
+        switch self {
+        case .resume:    "Reprendre"
+        case .relaunch:  "Relancer"
+        case .forceQuit: "Forcer"
+        case .close:     "Fermer"
+        }
+    }
+
+    var confirmation: String {
+        switch self {
+        case .resume:    "Reprendre ?"
+        case .relaunch:  "Relancer ?"
+        case .forceQuit: "Forcer ?"
+        case .close:     "Confirmer"
+        }
+    }
+}
+
 struct ProcessesPageView: View {
     var monitor: ProcessMonitor = .shared
 
-    @State private var pendingKill: String?
+    @State private var pending: (id: String, action: RowAction)?
     @State private var pendingReclaim = false
     @State private var resetTask: Task<Void, Never>?
 
@@ -78,9 +101,9 @@ struct ProcessesPageView: View {
             HStack(spacing: 12) {
                 Text(group.name)
                     .font(NK.ui(11.5, .semibold))
-                    .foregroundStyle(NK.t1)
+                    .foregroundStyle(group.isPaused ? NK.hot : NK.t1)
                     .lineLimit(1)
-                    .frame(width: 150, alignment: .leading)
+                    .frame(width: 140, alignment: .leading)
 
                 if group.pids.count > 1 {
                     Text("\(group.pids.count)")
@@ -91,17 +114,27 @@ struct ProcessesPageView: View {
                         .background(Capsule().fill(Color.white.opacity(0.06)))
                 }
 
+                if group.isPaused {
+                    Text("en pause")
+                        .font(NK.ui(9, .semibold))
+                        .foregroundStyle(NK.hot)
+                        .padding(.horizontal, 6)
+                        .frame(height: 15)
+                        .background(Capsule().fill(NK.hot.opacity(0.14)))
+                        .help("Suspendue par macOS faute de mémoire")
+                }
+
                 Spacer(minLength: 8)
 
                 MeterBar(value: share(group), tint: monitor.sortByCPU ? NK.hot : NK.accent, height: 3)
-                    .frame(width: 84)
+                    .frame(width: 64)
 
                 Text(monitor.sortByCPU ? group.cpuLabel : group.memoryLabel)
                     .font(NK.mono(11.5))
                     .foregroundStyle(NK.t1)
                     .frame(width: 62, alignment: .trailing)
 
-                killButton(group)
+                actions(group)
             }
             .padding(.vertical, 7)
 
@@ -118,29 +151,68 @@ struct ProcessesPageView: View {
         return (monitor.sortByCPU ? group.cpu : group.memoryBytes) / reference
     }
 
-    private func killButton(_ group: ProcessGroup) -> some View {
-        let armed = pendingKill == group.id
+    /// Une fois une action armée, elle seule reste affichée : pas de clic égaré
+    /// sur le bouton voisin, et la colonne garde sa largeur.
+    private func actions(_ group: ProcessGroup) -> some View {
+        var available: [RowAction] = []
+        if group.isPaused { available.append(.resume) }
+        if group.relaunchURL != nil { available.append(.relaunch) }
+        available.append(.forceQuit)
+        if !group.isPaused { available.append(.close) }
+
+        let armed = pending?.id == group.id ? pending?.action : nil
+        let shown = armed.map { [$0] } ?? available
+
+        return HStack(spacing: 4) {
+            ForEach(shown, id: \.title) { action in
+                actionButton(action, group: group, armed: armed == action)
+            }
+        }
+        .frame(width: 196, alignment: .trailing)
+    }
+
+    private func actionButton(_ action: RowAction, group: ProcessGroup, armed: Bool) -> some View {
+        let emphasized = action == .resume
+        let tint = armed ? NK.bad : emphasized ? NK.accent : NK.t3
 
         return Button {
             if armed {
-                monitor.terminate(group)
+                perform(action, on: group)
                 cancelPending()
             } else {
-                arm { pendingKill = group.id }
+                arm { pending = (group.id, action) }
             }
         } label: {
-            Text(armed ? "Confirmer" : "Fermer")
+            Text(armed ? action.confirmation : action.title)
                 .font(NK.ui(10, .semibold))
-                .foregroundStyle(armed ? NK.bad : NK.t3)
-                .padding(.horizontal, 9)
+                .foregroundStyle(tint)
+                .padding(.horizontal, 8)
                 .frame(height: 22)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(armed ? NK.bad.opacity(0.16) : Color.white.opacity(0.05))
+                        .fill(armed ? NK.bad.opacity(0.16) : emphasized ? NK.accent.opacity(0.14) : Color.white.opacity(0.05))
                 )
         }
         .buttonStyle(.plain)
-        .frame(width: 74, alignment: .trailing)
+        .help(help(for: action, group: group))
+    }
+
+    private func perform(_ action: RowAction, on group: ProcessGroup) {
+        switch action {
+        case .resume:    monitor.resume(group)
+        case .relaunch:  monitor.relaunch(group)
+        case .forceQuit: monitor.forceQuit(group)
+        case .close:     monitor.terminate(group)
+        }
+    }
+
+    private func help(for action: RowAction, group: ProcessGroup) -> String {
+        switch action {
+        case .resume:    "Lever la pause imposée par macOS (mot de passe administrateur)"
+        case .relaunch:  "Quitter puis rouvrir \(group.name) — libère \(group.memoryLabel)"
+        case .forceQuit: "Tuer \(group.name) et ses \(group.pids.count) processus — libère \(group.memoryLabel)"
+        case .close:     "Fermeture douce : \(group.name) peut proposer d'enregistrer"
+        }
     }
 
     // MARK: Colonne latérale
@@ -156,6 +228,11 @@ struct ProcessesPageView: View {
 
             Hairline()
 
+            if !pausedGroups.isEmpty {
+                pausedBlock
+                Hairline()
+            }
+
             reclaimBlock
 
             if let action = monitor.lastAction {
@@ -168,6 +245,18 @@ struct ProcessesPageView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+    }
+
+    private var pausedGroups: [ProcessGroup] { monitor.groups.filter(\.isPaused) }
+
+    private var pausedBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SectionLabel("Mémoire épuisée")
+            Text("macOS a mis en pause \(pausedGroups.map(\.name).joined(separator: ", ")). Elle y retourne tant que le swap manque : libérez de la mémoire avant de reprendre, ou relancez.")
+                .font(NK.ui(10.5, .medium))
+                .foregroundStyle(NK.hot)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -228,7 +317,7 @@ struct ProcessesPageView: View {
         resetTask = Task {
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
-            pendingKill = nil
+            pending = nil
             pendingReclaim = false
         }
     }
@@ -236,7 +325,7 @@ struct ProcessesPageView: View {
     private func cancelPending() {
         resetTask?.cancel()
         resetTask = nil
-        pendingKill = nil
+        pending = nil
         pendingReclaim = false
     }
 }

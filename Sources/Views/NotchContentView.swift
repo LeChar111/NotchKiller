@@ -52,15 +52,15 @@ enum WidgetTab: String, CaseIterable, Identifiable {
         case .home:     [.summary, .agenda]
         case .dev:      [.projects, .ports, .docker, .terminal]
         case .claude:   [.sessions, .history, .mcp]
-        case .system:   [.stats, .processes, .memory, .cleanup, .battery, .controls]
-        case .workshop: [.shelf, .clipboard, .notes, .calculator, .actions, .settings]
+        case .system:   [.stats, .processes, .memory, .cleanup, .battery]
+        case .workshop: [.shelf, .clipboard, .notes, .calculator, .actions]
         default:        []
         }
     }
 }
 
 enum WidgetSubpage: String, CaseIterable, Identifiable {
-    case summary, agenda, sessions, history, mcp, projects, ports, docker, terminal, stats, processes, memory, cleanup, battery, controls, shelf, clipboard, calculator, notes, actions, settings
+    case summary, agenda, sessions, history, mcp, projects, ports, docker, terminal, stats, processes, memory, cleanup, battery, shelf, clipboard, calculator, notes, actions, settings
 
     var id: String { rawValue }
 
@@ -82,7 +82,6 @@ enum WidgetSubpage: String, CaseIterable, Identifiable {
         case .processes: "Processus"
         case .memory:    "Mémoire"
         case .battery:  "Batterie"
-        case .controls: "Son & écran"
         case .shelf:    "Étagère"
         case .notes:    "Notes"
         case .actions:  "Actions"
@@ -106,11 +105,22 @@ struct NotchContentView: View {
     var notchTimer: NotchTimer = .shared
 
     @State private var tab: WidgetTab = .home
+    /// Les réglages ne sont pas une page d'onglet : le bouton du bandeau les
+    /// affiche par-dessus l'onglet courant, qu'on retrouve en les refermant.
+    @State private var showsSettings = false
+    @State private var hoveredTab: WidgetTab?
+    @State private var settingsSection: SettingsSection = .bar
+    @State private var confirmQuit = false
+    @State private var confirmTask: Task<Void, Never>?
+    @Namespace private var navNamespace
+    var ports: PortsModel = .shared
+    var docker: DockerModel = .shared
     @State private var subpages: [WidgetTab: WidgetSubpage] = [:]
     var activities: BarActivities = .shared
     var notifications: NotificationRelay = .shared
     var bluetooth: BluetoothModel = .shared
     var calendarModel: CalendarModel = .shared
+    var ableton: AbletonTransport = .shared
 
     private var notchSize: CGSize { panelManager.notchSize }
     private var isExpanded: Bool { panelManager.isExpanded }
@@ -122,6 +132,11 @@ struct NotchContentView: View {
     private var showsDoneDrawer: Bool {
         !isExpanded && activities.current == .claudeDone
             && claudeStateMachine.sessionStore.finishedNotice != nil
+    }
+
+    /// Volume ou luminosité en cours de réglage : jauge pleine largeur sous le bandeau.
+    private var showsLevelDrawer: Bool {
+        !isExpanded && (activities.current == .volume || activities.current == .brightness)
     }
 
     private var panelAnimation: Animation {
@@ -136,7 +151,13 @@ struct NotchContentView: View {
 
     private var bottomCornerRadius: CGFloat {
         if isExpanded { return cornerRadii.opened.bottom }
-        return isPeeking || showsDoneDrawer ? 18 : cornerRadii.closed.bottom
+        return isPeeking || showsDoneDrawer || showsLevelDrawer ? 18 : cornerRadii.closed.bottom
+    }
+
+    private var contentWidth: CGFloat {
+        // Une colonne de réglages : pleine largeur de 980, les interrupteurs
+        // partiraient loin de leur libellé.
+        showsSettings ? 640 : tab.contentWidth
     }
 
     private var currentSubpage: WidgetSubpage? {
@@ -147,15 +168,18 @@ struct NotchContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             notchLayout
+                .offset(x: panelManager.nudge * 7)
         }
         .padding(.horizontal, isExpanded ? NotchConstants.expandedPanelPadding : cornerRadii.closed.bottom)
-        .padding(.bottom, isExpanded ? 18 : 0)
+        .padding(.bottom, isExpanded ? 18 : max(0, panelManager.stretch) * 12)
         .background(Color.black)
         .clipShape(NotchShape(
             topCornerRadius: topCornerRadius,
             bottomCornerRadius: bottomCornerRadius
         ))
         .shadow(color: isExpanded ? .black.opacity(0.7) : .clear, radius: 6)
+        // Tiré vers le haut, le panneau ouvert se tasse contre l'encoche.
+        .scaleEffect(x: 1, y: isExpanded ? 1 + min(0, panelManager.stretch) * 0.04 : 1, anchor: .top)
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in
@@ -167,12 +191,17 @@ struct NotchContentView: View {
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: showsDoneDrawer)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: tab)
         .animation(.spring(response: 0.30, dampingFraction: 0.88), value: currentSubpage)
+        .animation(.spring(response: 0.30, dampingFraction: 0.88), value: showsSettings)
+        .animation(.spring(response: 0.30, dampingFraction: 0.88), value: settingsSection)
+        .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.72), value: panelManager.stretch)
+        .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.72), value: panelManager.nudge)
         .onReceive(NotificationCenter.default.publisher(for: .notchShouldCollapse)) { _ in
             panelManager.collapse()
         }
         .onReceive(NotificationCenter.default.publisher(for: Demo.navigate)) { note in
             guard let target = (note.userInfo?["tab"] as? String).flatMap(WidgetTab.init) else { return }
             tab = target
+            showsSettings = note.userInfo?["subpage"] as? String == WidgetSubpage.settings.rawValue
             if let sub = (note.userInfo?["subpage"] as? String).flatMap(WidgetSubpage.init),
                target.subpages.contains(sub) {
                 subpages[target] = sub
@@ -189,8 +218,9 @@ struct NotchContentView: View {
                     claudeStateMachine.sessionStore.clearFinishedNotice()
                 }
                 activities.dismissTransient()
-            } else if !settings.rememberLastTab {
-                tab = .home
+            } else {
+                showsSettings = false
+                if !settings.rememberLastTab { tab = .home }
             }
         }
         .onChange(of: volumeManager.lastChangeAt) { _, _ in
@@ -211,6 +241,10 @@ struct NotchContentView: View {
             guard value != nil, settings.barShowBluetooth else { return }
             activities.show(.bluetooth, for: 4)
         }
+        .onChange(of: ableton.alert) { _, value in
+            guard let value, settings.barShowDAW else { return }
+            activities.show(.dawAlert, for: value.kind == .crash ? 10 : 3)
+        }
         .onChange(of: batteryModel.lastEvent?.at) { _, value in
             guard value != nil, settings.barShowBatteryAlerts else { return }
             activities.show(.batteryAlert, for: 5)
@@ -218,6 +252,22 @@ struct NotchContentView: View {
         .onChange(of: claudeStateMachine.sessionStore.finishedNotice) { _, notice in
             guard notice != nil, settings.barShowClaudeDone, !isExpanded else { return }
             activities.show(.claudeDone, for: 10)
+        }
+        .onChange(of: panelManager.pageSwipe.count) { _, _ in
+            let tabs = WidgetTab.allCases
+            guard isExpanded, let position = tabs.firstIndex(of: tab) else { return }
+            let target = position + panelManager.pageSwipe.delta
+            guard tabs.indices.contains(target) else { return }
+            select(tabs[target])
+        }
+        .onChange(of: watchesDevCounts) { _, watching in
+            if watching {
+                ports.subscribe()
+                docker.subscribe()
+            } else {
+                ports.unsubscribe()
+                docker.unsubscribe()
+            }
         }
         .onChange(of: showsDoneDrawer, initial: true) { _, shows in
             panelManager.showsDrawer = shows
@@ -231,16 +281,23 @@ struct NotchContentView: View {
                 notchStrip
             } else {
                 collapsedBar
+                if showsLevelDrawer {
+                    LevelDrawer(activity: activities.current)
+                        .frame(width: notchSize.width - 10 + 2 * (104 + 4))
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 if showsDoneDrawer, let notice = claudeStateMachine.sessionStore.finishedNotice {
                     ClaudeDoneDrawer(notice: notice)
                         .frame(width: notchSize.width - 10 + 2 * (104 + 4))
+                        .offset(y: min(0, panelManager.stretch) * 14)
+                        .opacity(1 + min(0, panelManager.stretch) * 0.6)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
 
             if isExpanded {
                 expandedContent
-                    .frame(width: tab.contentWidth)
+                    .frame(width: contentWidth)
                     .transition(
                         .asymmetric(
                             insertion: .scale(scale: 0.8, anchor: .top)
@@ -255,24 +312,24 @@ struct NotchContentView: View {
 
     // MARK: Bandeau de l'encoche, ouvert
 
+    /// Les onglets occupent l'oreille gauche de l'encoche, les actions la
+    /// droite : la navigation principale ne coûte aucune ligne au contenu.
     private var notchStrip: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tab.title)
-                    .font(NK.ui(13.5, .semibold))
-                    .foregroundStyle(NK.t1)
-                if let sub = currentSubpage {
-                    Text(sub.title)
-                        .font(NK.ui(10, .medium))
-                        .foregroundStyle(NK.t3)
-                }
-            }
-            .padding(.leading, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            tabPills
+                .padding(.leading, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Color.clear.frame(width: notchSize.width - 8)
 
             HStack(spacing: 6) {
+                if showsSettings {
+                    quitButton
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+                stripButton(icon: "gearshape", active: showsSettings) {
+                    showsSettings.toggle()
+                }
                 stripButton(icon: panelManager.isPinned ? "pin.fill" : "pin") {
                     panelManager.togglePin()
                 }
@@ -281,14 +338,93 @@ struct NotchContentView: View {
             .padding(.trailing, 3)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(width: tab.contentWidth, height: notchSize.height)
+        .frame(width: contentWidth, height: notchSize.height)
     }
 
-    private func stripButton(icon: String, action: @escaping () -> Void) -> some View {
+    /// Icônes seules ; l'onglet actif déplie son libellé dans une pastille
+    /// blanche qui glisse d'un onglet à l'autre.
+    private var tabPills: some View {
+        HStack(spacing: 2) {
+            ForEach(WidgetTab.allCases) { item in
+                let active = isCurrent(item)
+                Button { select(item) } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: item.icon)
+                            .font(.system(size: 11, weight: .semibold))
+                        if active {
+                            Text(item.title)
+                                .font(NK.ui(11.5, .semibold))
+                                .fixedSize()
+                        }
+                    }
+                    .foregroundStyle(active ? Color.black : hoveredTab == item ? NK.t1 : NK.t2)
+                    .padding(.horizontal, active ? 10 : 7)
+                    .frame(height: 24)
+                    .background {
+                        if active {
+                            Capsule()
+                                .fill(Color.white)
+                                .matchedGeometryEffect(id: "tabPill", in: navNamespace)
+                        } else if hoveredTab == item {
+                            Capsule().fill(NK.surfaceRaised)
+                        }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help(item.title)
+                .onHover { hovering in
+                    // Un cran à chaque pastille franchie, comme des crans magnétiques.
+                    if hovering, hoveredTab != item { Haptics.play(.tick) }
+                    hoveredTab = hovering ? item : (hoveredTab == item ? nil : hoveredTab)
+                }
+            }
+        }
+    }
+
+    /// Quitter est irréversible pour la session : un premier clic arme le
+    /// bouton, un second dans les 4 s confirme — pas de dialogue système, qui
+    /// volerait le focus au panneau.
+    private var quitButton: some View {
+        Button {
+            if confirmQuit {
+                NSApp.terminate(nil)
+            } else {
+                confirmQuit = true
+                Haptics.play(.thud)
+                confirmTask?.cancel()
+                confirmTask = Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    confirmQuit = false
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: confirmQuit ? "exclamationmark.triangle.fill" : "power")
+                    .font(.system(size: 10.5, weight: .bold))
+                if confirmQuit {
+                    Text("Quitter ?")
+                        .font(NK.ui(10.5, .semibold))
+                        .fixedSize()
+                }
+            }
+            .foregroundStyle(NK.bad)
+            .padding(.horizontal, confirmQuit ? 9 : 0)
+            .frame(minWidth: 24, minHeight: 24)
+            .background(Capsule().fill(NK.bad.opacity(confirmQuit ? 0.22 : 0.14)))
+            .contentShape(Capsule())
+            .animation(.spring(response: 0.28, dampingFraction: 0.8), value: confirmQuit)
+        }
+        .buttonStyle(.plain)
+        .help(confirmQuit ? "Cliquer à nouveau pour quitter" : "Quitter NotchKiller")
+    }
+
+    private func stripButton(icon: String, active: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.55))
+                .foregroundStyle(active ? NK.accent : Color.white.opacity(0.55))
                 .frame(width: 24, height: 24)
                 .background(Circle().fill(NK.surfaceRaised))
         }
@@ -306,8 +442,9 @@ struct NotchContentView: View {
     @ViewBuilder
     private var expandedContent: some View {
         VStack(spacing: 0) {
-            tabRail
-                .padding(.top, 6)
+            if showsSubpageRail {
+                subpageRail
+            }
 
             pageContent
                 .frame(
@@ -318,70 +455,103 @@ struct NotchContentView: View {
         }
     }
 
-    private var tabRail: some View {
-        HStack(spacing: 2) {
-            ForEach(WidgetTab.allCases) { item in
-                Button { select(item) } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(item.title)
-                            .font(NK.ui(12, .semibold))
-                    }
-                    .foregroundStyle(tab == item ? NK.t1 : NK.t3)
-                    .padding(.horizontal, 9)
-                    .frame(height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(tab == item ? Color.white.opacity(0.10) : .clear)
-                    )
-                    .overlay(alignment: .bottom) {
-                        if tab == item {
-                            Capsule()
-                                .fill(NK.accent)
-                                .frame(height: 2)
-                                .padding(.horizontal, 9)
-                        }
+    private var showsSubpageRail: Bool {
+        showsSettings || !tab.subpages.isEmpty
+    }
+
+    /// Seconde ligne, réservée aux sous-pages (ou aux sections des réglages) :
+    /// soulignées comme des onglets de document, avec un compteur quand la
+    /// page a quelque chose à signaler.
+    private var subpageRail: some View {
+        HStack(spacing: 18) {
+            if showsSettings {
+                ForEach(SettingsSection.allCases) { item in
+                    railButton(item.title, active: settingsSection == item) { settingsSection = item }
+                }
+            } else {
+                ForEach(tab.subpages) { item in
+                    railButton(item.title, active: currentSubpage == item, badge: badge(for: item)) {
+                        subpages[tab] = item
                     }
                 }
-                .buttonStyle(.plain)
             }
-            Spacer(minLength: 12)
-
-            if !tab.subpages.isEmpty {
-                subnav
-            }
+            Spacer(minLength: 0)
         }
-        .padding(.bottom, 8)
         .overlay(alignment: .bottom) { Hairline() }
     }
 
-    private var subnav: some View {
-        HStack(spacing: 3) {
-            ForEach(tab.subpages) { item in
-                Button { subpages[tab] = item } label: {
-                    Text(item.title)
-                        .font(NK.ui(11, .semibold))
-                        .foregroundStyle(currentSubpage == item ? NK.t1 : NK.t3)
-                        .padding(.horizontal, 10)
-                        .frame(height: 24)
+    private func railButton(_ title: String, active: Bool, badge: Int? = nil,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(NK.ui(11.5, .semibold))
+                if let badge, badge > 0 {
+                    Text("\(badge)")
+                        .font(NK.mono(9))
+                        .monospacedDigit()
+                        .foregroundStyle(active ? NK.accent : NK.t2)
+                        .padding(.horizontal, 4)
+                        .frame(height: 14)
                         .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(currentSubpage == item ? Color.white.opacity(0.09) : .clear)
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(active ? NK.accent.opacity(0.22) : Color.white.opacity(0.10))
                         )
                 }
-                .buttonStyle(.plain)
             }
+            .foregroundStyle(active ? NK.t1 : NK.t2)
+            .frame(height: NotchConstants.navRailHeight)
+            .overlay(alignment: .bottom) {
+                if active {
+                    Capsule()
+                        .fill(NK.accent)
+                        .frame(height: 2)
+                        .matchedGeometryEffect(id: "subUnderline", in: navNamespace)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func badge(for subpage: WidgetSubpage) -> Int? {
+        switch subpage {
+        case .agenda:   calendarModel.events.filter { $0.end > Date() }.count
+        case .ports:    ports.ports.count
+        case .docker:   docker.containers.filter(\.isRunning).count
+        case .sessions: claudeStateMachine.sessionStore.activeSessionCount
+        case .shelf:    shelfModel.items.count
+        default:        nil
         }
     }
 
+    /// Ports et conteneurs ne sont interrogés que page ouverte : on s'abonne
+    /// aussi le temps que l'onglet Dev est affiché, pour ses compteurs.
+    private var watchesDevCounts: Bool {
+        isExpanded && !showsSettings && tab == .dev
+    }
+
+    private func isCurrent(_ item: WidgetTab) -> Bool {
+        !showsSettings && tab == item
+    }
+
     private func select(_ item: WidgetTab) {
+        showsSettings = false
         tab = item
         settings.lastTab = item.rawValue
     }
 
     @ViewBuilder
     private var pageContent: some View {
+        if showsSettings {
+            SettingsView(settings: settings, section: settingsSection)
+        } else {
+            tabContent
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
         switch tab {
         case .home:
             switch currentSubpage ?? .summary {
@@ -410,7 +580,6 @@ struct NotchContentView: View {
             case .memory:    MemoryPageView()
             case .cleanup:   CleanupPageView()
             case .battery:   BatteryView(battery: batteryModel)
-            case .controls:  InlineHUD(volumeManager: volumeManager, brightnessManager: brightnessManager)
             default:         StatsPageView(model: statsModel, settings: settings)
             }
         case .workshop:
@@ -419,7 +588,6 @@ struct NotchContentView: View {
             case .calculator: CalculatorView()
             case .notes:    NotesView()
             case .actions:  ToolsPageView()
-            case .settings: SettingsView(settings: settings)
             default:        ShelfView(shelf: shelfModel)
             }
         }

@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildNotchWindows()
         setupStatusItem()
         observeScreenChanges()
+        watchMissionControl()
         if Demo.isActive {
             Demo.start()
         } else {
@@ -96,6 +97,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NotchPanels.shared.reset(with: managers)
         updateScreensMenuItem()
+    }
+
+    // MARK: - Mission Control
+
+    @MainActor private func watchMissionControl() {
+        let watcher = MissionControlWatcher.shared
+        watcher.onChange = { [weak self] active in
+            self?.fadeNotchWindows(hidden: active)
+        }
+        watcher.start()
+    }
+
+    /// Le fondu de sortie suit l'ouverture de Mission Control ; au retour, on
+    /// laisse les fenêtres reprendre leur place avant de réapparaître.
+    @MainActor private func fadeNotchWindows(hidden: Bool) {
+        guard hidden else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                // Mission Control rouvert entre-temps : on reste masqué.
+                guard !MissionControlWatcher.shared.isActive else { return }
+                self?.animateNotchWindows(hidden: false)
+            }
+            return
+        }
+        animateNotchWindows(hidden: true)
+    }
+
+    @MainActor private func animateNotchWindows(hidden: Bool) {
+        for panel in notchPanels {
+            panel.ignoresMouseEvents = hidden
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = hidden ? 0.18 : 0.28
+            context.timingFunction = CAMediaTimingFunction(name: hidden ? .easeIn : .easeOut)
+            for panel in notchPanels {
+                panel.animator().alphaValue = hidden ? 0 : 1
+            }
+        }
     }
 
     private func observeScreenChanges() {

@@ -14,9 +14,11 @@ final class AppSettings {
     var barShowBluetooth: Bool  { didSet { save("bar.show.bluetooth", barShowBluetooth) } }
     var barShowBatteryAlerts: Bool { didSet { save("bar.show.batteryAlerts", barShowBatteryAlerts) } }
     var barShowCalendar: Bool   { didSet { save("bar.show.calendar", barShowCalendar) } }
+    var barShowDAW: Bool        { didSet { save("bar.show.daw", barShowDAW) } }
     var replaceSystemHUD: Bool  { didSet { save("bar.replaceSystemHUD", replaceSystemHUD) } }
     var relaySystemNotifications: Bool { didSet { save("bar.relayNotifications", relaySystemNotifications) } }
     var swipeGestures: Bool     { didSet { save("panel.swipeGestures", swipeGestures) } }
+    var hapticLevel: HapticLevel { didSet { defaults.set(hapticLevel.rawValue, forKey: "panel.hapticLevel") } }
     var showOnAllScreens: Bool  { didSet {
         save("panel.allScreens", showOnAllScreens)
         NotificationCenter.default.post(name: .notchScreensChanged, object: nil)
@@ -90,9 +92,13 @@ final class AppSettings {
         barShowBluetooth = bool("bar.show.bluetooth", true)
         barShowBatteryAlerts = bool("bar.show.batteryAlerts", true)
         barShowCalendar = bool("bar.show.calendar", true)
+        barShowDAW = bool("bar.show.daw", true)
         replaceSystemHUD = bool("bar.replaceSystemHUD", true)
         relaySystemNotifications = bool("bar.relayNotifications", false)
         swipeGestures = bool("panel.swipeGestures", true)
+        hapticLevel = d.object(forKey: "panel.hapticLevel") == nil
+            ? (bool("panel.haptics", true) ? .medium : .off)
+            : HapticLevel(rawValue: d.integer(forKey: "panel.hapticLevel")) ?? .medium
         showOnAllScreens = bool("panel.allScreens", false)
         accentTheme = d.string(forKey: "theme.accent") ?? NKAccent.bleu.rawValue
 
@@ -125,9 +131,11 @@ final class AppSettings {
         barShowBluetooth = true
         barShowBatteryAlerts = true
         barShowCalendar = true
+        barShowDAW = true
         replaceSystemHUD = true
         relaySystemNotifications = false
         swipeGestures = true
+        hapticLevel = .medium
         showOnAllScreens = false
         accentTheme = NKAccent.bleu.rawValue
         hoverPeek = true

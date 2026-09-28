@@ -1,61 +1,36 @@
 import AppKit
 import SwiftUI
 
+/// Sections des réglages, affichées comme sous-pages dans la ligne de
+/// navigation du panneau.
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case bar, system, panel, gestures, appearance
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bar:        "Bandeau fermé"
+        case .system:     "Système"
+        case .panel:      "Panneau"
+        case .gestures:   "Gestes & haptique"
+        case .appearance: "Apparence"
+        }
+    }
+}
+
 struct SettingsView: View {
     var settings: AppSettings
-
-    @State private var confirmQuit = false
-    @State private var confirmTask: Task<Void, Never>?
+    var section: SettingsSection = .bar
 
     var body: some View {
         AdaptiveScrollView(maxHeight: NotchConstants.maxExpandedContentHeight - 60) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 24) {
-                    group("Bandeau fermé") {
-                        toggleRow("Horloge et charge processeur", isOn: bind(\.barShowCPU))
-                        toggleRow("Titre en cours de lecture", isOn: bind(\.barShowMusic))
-                        toggleRow("Sessions Claude Code", isOn: bind(\.barShowClaude))
-                        toggleRow("Annoncer la fin d'une réponse",
-                                  note: "Tours de moins de 5 s ignorés",
-                                  isOn: bind(\.barShowClaudeDone))
-                        toggleRow("Prochain rendez-vous", isOn: bind(\.barShowCalendar), last: true)
-                    }
+                sectionContent
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                    group("Système") {
-                        toggleRow("Volume et luminosité dans l'encoche", isOn: bind(\.barShowVolumeHUD))
-                        toggleRow("Remplacer le HUD de macOS",
-                                  note: "Sinon les deux s'affichent en même temps",
-                                  isOn: bind(\.replaceSystemHUD))
-                        toggleRow("Connexions Bluetooth", isOn: bind(\.barShowBluetooth))
-                        toggleRow("Alertes batterie",
-                                  note: "Branchement, débranchement, seuil de 20 %",
-                                  isOn: bind(\.barShowBatteryAlerts))
-                        toggleRow("Relayer les notifications",
-                                  note: "Demande l'Accès complet au disque dans Réglages Système",
-                                  isOn: bind(\.relaySystemNotifications), last: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                    VStack(alignment: .leading, spacing: NK.sectionGap) {
-                        group("Panneau") {
-                            toggleRow("Aperçu au survol",
-                                      note: "Le bandeau s'enrichit sans s'ouvrir",
-                                      isOn: bind(\.hoverPeek))
-                            toggleRow("Gestes de balayage",
-                                      note: "Horizontal : activité suivante · vertical : ouvrir",
-                                      isOn: bind(\.swipeGestures))
-                            toggleRow("Se souvenir du dernier onglet",
-                                      isOn: bind(\.rememberLastTab))
-                            toggleRow("Afficher sur tous les écrans",
-                                      note: screensNote,
-                                      isOn: bind(\.showOnAllScreens), last: true)
-                        }
-                        accentPicker
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .padding(.top, 4)
+                    .padding(.top, 10)
+                    .id(section)
+                    .transition(.opacity)
 
                 HStack(spacing: 10) {
                     Button("Réinitialiser") { settings.resetDefaults() }
@@ -69,8 +44,6 @@ struct SettingsView: View {
                         )
                         .buttonStyle(.plain)
 
-                    quitButton
-
                     Spacer()
 
                     Text("NotchKiller \(Bundle.main.shortVersion)")
@@ -81,6 +54,101 @@ struct SettingsView: View {
                 .padding(.bottom, 10)
             }
         }
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch section {
+        case .bar:
+            VStack(spacing: 0) {
+                toggleRow("Horloge et charge processeur", isOn: bind(\.barShowCPU))
+                toggleRow("Titre en cours de lecture", isOn: bind(\.barShowMusic))
+                toggleRow("Sessions Claude Code", isOn: bind(\.barShowClaude))
+                toggleRow("Annoncer la fin d'une réponse",
+                          note: "Tours de moins de 5 s ignorés",
+                          isOn: bind(\.barShowClaudeDone))
+                toggleRow("Transport d'Ableton Live",
+                          note: "Cocher « Sync » sur la sortie MIDI NotchKiller dans Live",
+                          isOn: bind(\.barShowDAW))
+                toggleRow("Prochain rendez-vous", isOn: bind(\.barShowCalendar), last: true)
+            }
+        case .system:
+            VStack(spacing: 0) {
+                toggleRow("Volume et luminosité dans l'encoche", isOn: bind(\.barShowVolumeHUD))
+                toggleRow("Remplacer le HUD de macOS",
+                          note: "Sinon les deux s'affichent en même temps",
+                          isOn: bind(\.replaceSystemHUD))
+                toggleRow("Connexions Bluetooth", isOn: bind(\.barShowBluetooth))
+                toggleRow("Alertes batterie",
+                          note: "Branchement, débranchement, seuil de 20 %",
+                          isOn: bind(\.barShowBatteryAlerts))
+                toggleRow("Relayer les notifications",
+                          note: "Demande l'Accès complet au disque dans Réglages Système",
+                          isOn: bind(\.relaySystemNotifications), last: true)
+            }
+        case .panel:
+            VStack(spacing: 0) {
+                toggleRow("Aperçu au survol",
+                          note: "Le bandeau s'enrichit sans s'ouvrir",
+                          isOn: bind(\.hoverPeek))
+                toggleRow("Se souvenir du dernier onglet",
+                          isOn: bind(\.rememberLastTab))
+                toggleRow("Afficher sur tous les écrans",
+                          note: screensNote,
+                          isOn: bind(\.showOnAllScreens), last: true)
+            }
+        case .gestures:
+            VStack(spacing: 0) {
+                toggleRow("Gestes de balayage",
+                          note: "Horizontal : activité ou page suivante · vertical : ouvrir, refermer",
+                          isOn: bind(\.swipeGestures))
+                hapticRow
+            }
+        case .appearance:
+            accentPicker
+        }
+    }
+
+    /// Chaque niveau joue un exemple au clic : on choisit au ressenti.
+    private var hapticRow: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Retour haptique")
+                    .font(NK.ui(11.5, .medium))
+                    .foregroundStyle(NK.t1)
+                Text("Trackpad Force Touch · chaque niveau joue un exemple")
+                    .font(NK.ui(10, .medium))
+                    .foregroundStyle(NK.t3)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 3) {
+                ForEach(HapticLevel.allCases) { level in
+                    let active = settings.hapticLevel == level
+                    Button {
+                        settings.hapticLevel = level
+                        Haptics.play(.snap, level: level)
+                    } label: {
+                        Text(level.title)
+                            .font(NK.ui(10.5, .semibold))
+                            .foregroundStyle(active ? NK.t1 : NK.t2)
+                            .padding(.horizontal, 10)
+                            .frame(height: 24)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(active ? Color.white.opacity(0.10) : .clear)
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(2)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+        }
+        .padding(.vertical, 9)
     }
 
     private var screensNote: String {
@@ -115,50 +183,8 @@ struct SettingsView: View {
         }
     }
 
-    /// Quitter est irréversible pour la session : on demande une confirmation
-    /// plutôt qu'un dialogue système, qui volerait le focus au panneau.
-    private var quitButton: some View {
-        Button {
-            if confirmQuit {
-                NSApp.terminate(nil)
-            } else {
-                confirmQuit = true
-                confirmTask?.cancel()
-                confirmTask = Task {
-                    try? await Task.sleep(for: .seconds(4))
-                    guard !Task.isCancelled else { return }
-                    confirmQuit = false
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: confirmQuit ? "exclamationmark.triangle.fill" : "power")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(confirmQuit ? "Confirmer" : "Quitter NotchKiller")
-                    .font(NK.ui(11, .semibold))
-            }
-            .foregroundStyle(NK.bad)
-            .padding(.horizontal, 13)
-            .frame(height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(NK.bad.opacity(confirmQuit ? 0.18 : 0.10))
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("L'app se relancera à la prochaine ouverture de session")
-    }
-
     private func bind(_ keyPath: ReferenceWritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
         Binding(get: { settings[keyPath: keyPath] }, set: { settings[keyPath: keyPath] = $0 })
-    }
-
-    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(title)
-            VStack(spacing: 0) { content() }
-        }
     }
 
     private func toggleRow(_ title: String, note: String? = nil,
