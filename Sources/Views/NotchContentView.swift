@@ -52,7 +52,7 @@ enum WidgetTab: String, CaseIterable, Identifiable {
         case .home:     [.summary, .agenda]
         case .dev:      [.projects, .ports, .docker, .terminal]
         case .claude:   [.sessions, .history, .mcp]
-        case .system:   [.stats, .processes, .memory, .cleanup, .battery]
+        case .system:   [.stats, .processes, .memory, .fans, .cleanup, .battery]
         case .workshop: [.shelf, .clipboard, .notes, .calculator, .actions]
         default:        []
         }
@@ -60,7 +60,7 @@ enum WidgetTab: String, CaseIterable, Identifiable {
 }
 
 enum WidgetSubpage: String, CaseIterable, Identifiable {
-    case summary, agenda, sessions, history, mcp, projects, ports, docker, terminal, stats, processes, memory, cleanup, battery, shelf, clipboard, calculator, notes, actions, settings
+    case summary, agenda, sessions, history, mcp, projects, ports, docker, terminal, stats, processes, memory, fans, cleanup, battery, shelf, clipboard, calculator, notes, actions, settings
 
     var id: String { rawValue }
 
@@ -81,6 +81,7 @@ enum WidgetSubpage: String, CaseIterable, Identifiable {
         case .stats:     "Statistiques"
         case .processes: "Processus"
         case .memory:    "Mémoire"
+        case .fans:      "Ventilation"
         case .battery:  "Batterie"
         case .shelf:    "Étagère"
         case .notes:    "Notes"
@@ -578,6 +579,7 @@ struct NotchContentView: View {
             switch currentSubpage ?? .stats {
             case .processes: ProcessesPageView()
             case .memory:    MemoryPageView()
+            case .fans:      FansPageView()
             case .cleanup:   CleanupPageView()
             case .battery:   BatteryView(battery: batteryModel)
             default:         StatsPageView(model: statsModel, settings: settings)

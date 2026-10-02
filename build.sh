@@ -136,6 +136,28 @@ if [[ -f "$HELPER_SRC" ]]; then
     || true
 fi
 
+# ── Assistant root des ventilateurs ──────────────────────────────────────────
+# Seul root peut écrire dans le SMC : NotchKiller l'installe à la demande en
+# LaunchDaemon (Système › Ventilation). Il partage le client SMC de l'app.
+FAN_SRC="$ROOT_DIR/Tools/fan-helper/main.swift"
+FAN_SHARED="$ROOT_DIR/Sources/Features/Fans/SMC.swift"
+if [[ -f "$FAN_SRC" ]]; then
+  FAN_BIN="$RESOURCES_DIR/NotchKillerFanHelper"
+  if [[ "$UNIVERSAL" == "1" ]]; then
+    TMP="$(mktemp -d)"
+    xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-macos15.0 -O "$FAN_SRC" "$FAN_SHARED" -framework IOKit -o "$TMP/f.arm64"
+    xcrun swiftc -sdk "$SDK_PATH" -target x86_64-apple-macos15.0 -O "$FAN_SRC" "$FAN_SHARED" -framework IOKit -o "$TMP/f.x86_64"
+    lipo -create "$TMP/f.arm64" "$TMP/f.x86_64" -output "$FAN_BIN"
+    rm -rf "$TMP"
+  else
+    xcrun swiftc -sdk "$SDK_PATH" -target arm64-apple-macos15.0 -O "$FAN_SRC" "$FAN_SHARED" -framework IOKit -o "$FAN_BIN"
+  fi
+  codesign --force --sign "${NK_HELPER_SIGN_IDENTITY:-${NK_SIGN_IDENTITY:--}}" \
+    --identifier "$BUNDLE_ID.fan-helper" --timestamp=none "$FAN_BIN" >/dev/null 2>&1 \
+    || codesign --force --sign - --identifier "$BUNDLE_ID.fan-helper" "$FAN_BIN" >/dev/null 2>&1 \
+    || true
+fi
+
 # ── Script d'extension Ableton Live ──────────────────────────────────────────
 # Copié tel quel ; NotchKiller l'installe dans la User Library à la demande.
 ABLETON_SRC="$ROOT_DIR/Tools/ableton/NotchKiller"
